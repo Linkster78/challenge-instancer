@@ -1,0 +1,19 @@
+.logo {
+    width: 40rem;
+}
+
+.login-button {
+    text-decoration: none;
+    color: inherit;
+
+    border: 1px solid var(--text-color);
+    padding: .3rem .8rem;
+    border-radius: .3rem;
+
+    transition: all .2s;
+}
+
+.login-button:hover {
+    background-color: var(--text-color);
+    color: var(--background-color);
+}

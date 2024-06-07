@@ -1,0 +1,4 @@
+[discord]
+client_id = "1248440441649500243"
+client_secret = "5j2OiR-OJks6q56ek1zCxJg4s68SITZd"
+redirect_url = "http://127.0.0.1:3000/login"

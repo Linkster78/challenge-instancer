@@ -1,0 +1,4 @@
+[discord]
+client_id = "discord app client id"
+client_secret = "discord app client secret"
+redirect_url = "http://my.great.website/login"
