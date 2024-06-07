@@ -5,9 +5,8 @@ use askama::Template;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use oauth2::{AuthorizationCode, CsrfToken, RedirectUrl, Scope};
+use oauth2::{AuthorizationCode, CsrfToken, Scope};
 use oauth2::reqwest::async_http_client;
-use serde::Deserialize;
 use tower_sessions::Session;
 
 use crate::InstancerState;

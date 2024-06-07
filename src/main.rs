@@ -6,7 +6,7 @@ use axum::Router;
 use axum::routing::get;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
-use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use tower_sessions::{MemoryStore, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
 
 use crate::state::InstancerState;
@@ -22,8 +22,8 @@ async fn main() {
 
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store)
-        .with_secure(false)
-        .with_expiry(Expiry::OnSessionEnd);
+        .with_same_site(SameSite::Lax)
+        .with_secure(false);
 
     let state = Arc::new(InstancerState::new());
 
