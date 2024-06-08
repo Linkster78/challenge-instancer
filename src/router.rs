@@ -8,8 +8,8 @@ use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
 use tower_sessions::Session;
 
-use crate::discord::{Discord, DiscordError};
-use crate::InstancerState;
+use crate::discord::Discord;
+use crate::{discord, InstancerState};
 use crate::models::{TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 
@@ -66,34 +66,27 @@ pub async fn login(
 ) -> Result<Response, InternalError> {
     let (auth_url, _) = state.oauth2
         .authorize_url(CsrfToken::new_random)
-        .add_scope(Scope::new("identify".to_string()))
-        .add_scope(Scope::new("guilds".to_string()))
+        .add_scopes(discord::SCOPES.iter().map(|scope| Scope::new(scope.to_string())))
         .url();
 
     if let Some(code) = params.get("code") {
         match state.oauth2.exchange_code(AuthorizationCode::new(code.clone()))
                 .request_async(async_http_client).await {
             Ok(token) => {
-                let discord = Discord::new(token.access_token().secret().clone());
+                let scopes = token.scopes().ok_or(anyhow::Error::msg("scopes are undefined"))?;
+                let scopes: Vec<&str> = scopes.iter().map(|scope| scope.as_str()).collect();
 
-                let discord_user = match discord.current_user().await {
-                    Err(err) if err.downcast_ref::<DiscordError>().is_some_and(|err| matches!(err, DiscordError::MissingScope)) => {
-                        let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("The OAuth2 token is missing one or more of the required scopes.") };
-                        return Ok(HtmlTemplate(login).into_response())
-                    },
-                    a => a
-                }?;
+                if !discord::SCOPES.iter().all(|sc1| scopes.iter().any(|sc2| sc1 == sc2)) {
+                    let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("The OAuth2 token is missing one or more of the required scopes.") };
+                    return Ok(HtmlTemplate(login).into_response());
+                }
+
+                let discord = Discord::new(token.access_token().secret().clone());
+                let discord_user = discord.current_user().await?;
 
                 let user = match state.database.fetch_user(&discord_user.id).await? {
                     None => {
-                        let guilds = match discord.current_guilds().await {
-                            Err(err) if err.downcast_ref::<DiscordError>().is_some_and(|err| matches!(err, DiscordError::MissingScope)) => {
-                                let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("The OAuth2 token is missing one or more of the required scopes.") };
-                                return Ok(HtmlTemplate(login).into_response())
-                            },
-                            a => a
-                        }?;
-
+                        let guilds = discord.current_guilds().await?;
                         if !guilds.iter().any(|guild| guild.id == state.config.discord.server_id) {
                             let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("You must be within the UnitedCTF Discord server.") };
                             return Ok(HtmlTemplate(login).into_response())

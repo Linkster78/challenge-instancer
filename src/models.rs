@@ -9,6 +9,12 @@ pub struct User {
     pub creation_time: i64
 }
 
+impl User {
+    pub fn avatar_url(&self) -> String {
+        format!("https://cdn.discordapp.com/avatars/{}/{}.png", self.id, self.avatar)
+    }
+}
+
 pub struct TimeSinceEpoch(pub SystemTime);
 
 impl TimeSinceEpoch {

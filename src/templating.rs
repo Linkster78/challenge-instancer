@@ -12,8 +12,8 @@ where
         match self.0.render() {
             Ok(html) => Html(html).into_response(),
             Err(err) => {
-                tracing::error!("{}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, "An error has occurred. Contact the admins.").into_response()
+                tracing::error!("{:?}", err);
+                (StatusCode::INTERNAL_SERVER_ERROR, "A templating error has occurred, contact the admins.").into_response()
             }
         }
     }

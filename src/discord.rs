@@ -1,9 +1,9 @@
 use const_format::concatcp;
-use reqwest::StatusCode;
 use serde::Deserialize;
-use thiserror::Error;
 
 const HOST: &'static str = "https://discord.com/api/v10";
+
+pub const SCOPES: [&'static str; 2] = ["identify", "guilds"];
 
 pub struct Discord {
     access_token: String,
@@ -23,14 +23,6 @@ pub struct Guild {
     pub id: String
 }
 
-#[derive(Error, Debug)]
-pub enum DiscordError {
-    #[error("oauth2 scope missing")]
-    MissingScope,
-    #[error("api error `{0}`\n{1}")]
-    Unknown(StatusCode, String)
-}
-
 impl Discord {
     pub fn new(access_token: String) -> Self {
         Discord {
@@ -40,26 +32,16 @@ impl Discord {
     }
 
     pub async fn current_user(&self) -> anyhow::Result<User> {
-        let response = self.client.get(concatcp!(HOST, "/users/@me"))
+        Ok(self.client.get(concatcp!(HOST, "/users/@me"))
             .header("Authorization", format!("Bearer {}", self.access_token))
-            .send().await?;
-
-        match response.status() {
-            StatusCode::OK => Ok(response.json().await?),
-            StatusCode::UNAUTHORIZED => Err(DiscordError::MissingScope.into()),
-            _ => Err(DiscordError::Unknown(response.status(), response.text().await?).into())
-        }
+            .send().await?
+            .json().await?)
     }
 
     pub async fn current_guilds(&self) -> anyhow::Result<Vec<Guild>> {
-        let response = self.client.get(concatcp!(HOST, "/users/@me/guilds"))
+        Ok(self.client.get(concatcp!(HOST, "/users/@me/guilds"))
             .header("Authorization", format!("Bearer {}", self.access_token))
-            .send().await?;
-
-        match response.status() {
-            StatusCode::OK => Ok(response.json().await?),
-            StatusCode::UNAUTHORIZED => Err(DiscordError::MissingScope.into()),
-            _ => Err(DiscordError::Unknown(response.status(), response.text().await?).into())
-        }
+            .send().await?
+            .json().await?)
     }
 }
