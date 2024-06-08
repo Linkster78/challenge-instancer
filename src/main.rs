@@ -1,13 +1,12 @@
 use std::sync::Arc;
 
-use askama::Template;
-use axum::response::IntoResponse;
 use axum::Router;
 use axum::routing::get;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
+use tower_sessions::cookie::time::Duration;
 
 use crate::state::InstancerState;
 
@@ -15,6 +14,9 @@ mod router;
 mod templating;
 mod config;
 mod state;
+mod discord;
+mod database;
+mod models;
 
 #[tokio::main]
 async fn main() {
@@ -23,9 +25,11 @@ async fn main() {
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store)
         .with_same_site(SameSite::Lax)
+        .with_expiry(Expiry::OnInactivity(Duration::days(1)))
         .with_secure(false);
 
-    let state = Arc::new(InstancerState::new());
+    let state = InstancerState::new().await.expect("failed to initialize state");
+    let state = Arc::new(state);
 
     let app = Router::new()
         .route("/", get(router::dashboard))

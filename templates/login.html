@@ -11,6 +11,10 @@
     <main class="center center-contents">
         <img src="/img/logo.png" class="logo" alt="logo">
         <a class="login-button" href="{{ oauth2_url }}">Login with Discord</a>
+
+        {%- if error.is_some() %}
+        <p class="error">{{ error.unwrap() }}</p>
+        {% endif %}
     </main>
 </body>
 </html>
