@@ -58,6 +58,13 @@ pub async fn dashboard(
     }
 }
 
+pub async fn logout(
+    session: Session
+) -> impl IntoResponse {
+    session.clear().await;
+    Redirect::to("/login")
+}
+
 #[derive(Template)]
 #[template(path = "login.html")]
 struct LoginTemplate {

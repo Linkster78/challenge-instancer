@@ -41,6 +41,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(router::dashboard))
         .route("/login", get(router::login))
+        .route("/logout", get(router::logout))
         .fallback_service(ServeDir::new("static"))
         .with_state(state)
         .layer(session_layer);
