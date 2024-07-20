@@ -44,4 +44,8 @@ impl Discord {
             .send().await?
             .json().await?)
     }
+
+    pub fn avatar_url(id: &str, avatar: &str) -> String {
+        format!("https://cdn.discordapp.com/avatars/{}/{}.png", id, avatar)
+    }
 }

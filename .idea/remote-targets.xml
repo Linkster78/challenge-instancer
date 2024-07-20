@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="RemoteTargetsManager">
+    <targets>
+      <target name="WSL - Ubuntu-22.04" type="wsl" uuid="2d0ee9eb-15cf-4246-ac2c-c256a4acf123">
+        <config>
+          <option name="distributionMsId" value="Ubuntu-22.04" />
+          <option name="projectRootOnTarget" value="{exitCode=0, timeout=false, cancelled=false, stdout=/tmp/tmp.AtUxcXvy00&#10;, stderr=}/challenge-instancer" />
+        </config>
+        <ContributedStateBase type="RsLanguageRuntime">
+          <config>
+            <option name="cargoPath" value="/home/julien/.cargo/bin/cargo" />
+            <option name="cargoVersion" value="1.75.0 (1d8b05cdd 2023-11-20)" />
+            <option name="rustcPath" value="/home/julien/.cargo/bin/rustc" />
+            <option name="rustcVersion" value="1.75.0 (82e1608df 2023-12-21)" />
+          </config>
+        </ContributedStateBase>
+      </target>
+    </targets>
+  </component>
+</project>
