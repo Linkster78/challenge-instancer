@@ -1,0 +1,41 @@
+header a {
+    color: var(--text-color-muted);
+    text-decoration: none;
+}
+
+header a:hover, .nav-selected {
+    color: var(--text-color);
+}
+
+header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 1.2rem;
+    padding: 0 1rem .7rem 1rem;
+    border-bottom: #eee 1px solid;
+}
+
+nav ul {
+    margin: 0;
+    padding: 0;
+
+    display: flex;
+    gap: 2rem;
+}
+
+nav li {
+    list-style: none;
+    display: inline-flex;
+}
+
+.logout {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.avatar {
+    width: 2.5rem;
+    border-radius: 25%;
+}

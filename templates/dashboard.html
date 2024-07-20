@@ -2,12 +2,44 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Instancer | Dashboard</title>
+    <title>UnitedCTF Instancer</title>
 
     <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/main.css">
     <link rel="stylesheet" href="/css/dashboard.css">
 </head>
 <body>
-    dashboard
+    <header>
+        <nav>
+            <ul>
+                <li><a href="/" class="nav-selected">Défis 🚩</a></li>
+                <li><a href="/shell">Shell 💻</a></li>
+                <li><a href="/help">Aide 🤔</a></li>
+            </ul>
+        </nav>
+        <div class="logout">
+            <a href="/logout">Déconnexion</a>
+            <img class="avatar" src="{{ avatar_url }}" alt="avatar discord">
+        </div>
+    </header>
+    <main>
+        {% for challenge in challenges %}
+        <div class="challenge-card" data-cid="{{ challenge.id }}">
+            <div class="details">
+                <h3>{{ challenge.name }}</h3>
+                {% if let Some(description) = challenge.description %}<p>{{ description }}</p>{% endif %}
+            </div>
+            <div class="actions">
+                <button class="spawn">Créer</button>
+                <button class="reset">Réinitialiser</button>
+                <button class="extend">Étendre</button>
+                <button class="destroy">Fermer</button>
+            </div>
+        </div>
+        {% endfor %}
+    </main>
+
+    <script src="https://code.jquery.com/jquery-3.7.1.slim.min.js"></script>
+    <script src="/js/dashboard.js"></script>
 </body>
 </html>

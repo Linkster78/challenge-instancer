@@ -10,7 +10,7 @@ use tower_sessions::Session;
 
 use crate::discord::Discord;
 use crate::{discord, InstancerState};
-use crate::models::{TimeSinceEpoch, User};
+use crate::models::{Challenge, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 
 #[derive(Template)]
@@ -38,14 +38,20 @@ where
 
 #[derive(Template)]
 #[template(path = "dashboard.html")]
-struct DashboardTemplate;
+struct DashboardTemplate {
+    avatar_url: String,
+    challenges: Vec<Challenge>
+}
 
 pub async fn dashboard(
     session: Session,
     State(_state): State<Arc<InstancerState>>
 ) -> Response {
-    if let Ok(Some(_uid)) = session.get::<String>("uid").await {
-        let dashboard = DashboardTemplate;
+    if let Ok(Some(uid)) = session.get::<String>("uid").await {
+        let dashboard = DashboardTemplate {
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await.unwrap().unwrap()),
+            challenges: Vec::new()
+        };
         HtmlTemplate(dashboard).into_response()
     } else {
         Redirect::to("/login").into_response()
@@ -67,6 +73,7 @@ pub async fn login(
     let (auth_url, _) = state.oauth2
         .authorize_url(CsrfToken::new_random)
         .add_scopes(discord::SCOPES.iter().map(|scope| Scope::new(scope.to_string())))
+        .add_extra_param("prompt", "none")
         .url();
 
     if let Some(code) = params.get("code") {
@@ -77,7 +84,7 @@ pub async fn login(
                 let scopes: Vec<&str> = scopes.iter().map(|scope| scope.as_str()).collect();
 
                 if !discord::SCOPES.iter().all(|sc1| scopes.iter().any(|sc2| sc1 == sc2)) {
-                    let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("The OAuth2 token is missing one or more of the required scopes.") };
+                    let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("Certains des scopes OAuth requis n'ont pas été autorisés.") };
                     return Ok(HtmlTemplate(login).into_response());
                 }
 
@@ -88,7 +95,7 @@ pub async fn login(
                     None => {
                         let guilds = discord.current_guilds().await?;
                         if !guilds.iter().any(|guild| guild.id == state.config.discord.server_id) {
-                            let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("You must be within the UnitedCTF Discord server.") };
+                            let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("Vous devez faire partie du serveur Discord du UnitedCTF pour utiliser cette plateforme.") };
                             return Ok(HtmlTemplate(login).into_response())
                         }
 
@@ -107,11 +114,12 @@ pub async fn login(
                 };
 
                 session.insert("uid", user.id).await.unwrap();
+                session.insert("avatar", user.avatar).await.unwrap();
 
                 Ok(Redirect::to("/").into_response())
             },
             Err(_) => {
-                let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("An invalid OAuth2 code was received from Discord.") };
+                let login = LoginTemplate { oauth2_url: auth_url.to_string(), error: Some("Un code OAuth invalide a été reçu de la part de Discord.") };
                 Ok(HtmlTemplate(login).into_response())
             }
         }

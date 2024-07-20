@@ -3,6 +3,7 @@
 :root {
     --background-color: #222;
     --text-color: #eee;
+    --text-color-muted: #bbb;
 }
 
 body {
@@ -10,9 +11,10 @@ body {
     font-style: normal;
     background-color: var(--background-color);
     color: var(--text-color);
+    margin: 1rem;
 }
 
-p {
+p, h1, h2, h3 {
     margin: 0;
 }
 

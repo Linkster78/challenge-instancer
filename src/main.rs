@@ -2,13 +2,14 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
+use sqlx::sqlite::SqliteConnectOptions;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
-use tower_sessions::{Expiry, MemoryStore, SessionManagerLayer};
+use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration;
-
 use crate::state::InstancerState;
+use tower_sessions_sqlx_store::{sqlx::SqlitePool, SqliteStore};
 
 mod router;
 mod templating;
@@ -22,14 +23,20 @@ mod models;
 async fn main() {
     tracing_subscriber::fmt::init();
 
-    let session_store = MemoryStore::default();
-    let session_layer = SessionManagerLayer::new(session_store)
-        .with_same_site(SameSite::Lax)
-        .with_expiry(Expiry::OnInactivity(Duration::days(1)))
-        .with_secure(false);
-
     let state = InstancerState::new().await.expect("failed to initialize state");
     let state = Arc::new(state);
+
+    let pool = SqlitePool::connect_with(SqliteConnectOptions::new()
+        .create_if_missing(true)
+        .filename(state.config.database.file_path.clone()))
+        .await.expect("failed to setup sqlite pool for session store");
+    let session_store = SqliteStore::new(pool);
+    session_store.migrate().await.expect("failed to migrate session store");
+
+    let session_layer = SessionManagerLayer::new(session_store)
+        .with_same_site(SameSite::Lax)
+        .with_expiry(Expiry::OnInactivity(Duration::days(3)))
+        .with_secure(false);
 
     let app = Router::new()
         .route("/", get(router::dashboard))

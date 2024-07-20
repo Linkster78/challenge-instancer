@@ -9,6 +9,13 @@ pub struct User {
     pub creation_time: i64
 }
 
+pub struct Challenge {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub ttl: u32
+}
+
 pub struct TimeSinceEpoch(pub SystemTime);
 
 impl TimeSinceEpoch {

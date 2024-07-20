@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Instancer | Login</title>
+    <title>UnitedCTF Instancer</title>
 
     <link rel="stylesheet" href="/css/style.css">
     <link rel="stylesheet" href="/css/login.css">
@@ -10,7 +10,7 @@
 <body>
     <main class="center center-contents">
         <img src="/img/logo.png" class="logo" alt="logo">
-        <a class="login-button" href="{{ oauth2_url }}">Login with Discord</a>
+        <a class="login-button" href="{{ oauth2_url }}">Se connecter avec Discord</a>
 
         {%- if error.is_some() %}
         <p class="error">{{ error.unwrap() }}</p>
