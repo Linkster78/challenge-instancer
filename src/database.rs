@@ -1,23 +1,16 @@
 use sqlx::{Error, SqlitePool};
-use sqlx::sqlite::{SqliteConnectOptions, SqliteQueryResult};
+use sqlx::sqlite::SqliteQueryResult;
 
-use crate::config::DatabaseConfig;
 use crate::models::User;
 
-pub struct InstancerDatabase {
+pub struct Database {
     pool: SqlitePool
 }
 
-impl InstancerDatabase {
-    pub async fn new(config: &DatabaseConfig) -> sqlx::Result<InstancerDatabase> {
-        let pool = SqlitePool::connect_with(SqliteConnectOptions::new()
-            .create_if_missing(true)
-            .filename(config.file_path.clone()))
-            .await?;
-
+impl Database {
+    pub async fn new(pool: SqlitePool) -> sqlx::Result<Database> {
         sqlx::migrate!().run(&pool).await?;
-
-        Ok(InstancerDatabase {
+        Ok(Database {
             pool
         })
     }

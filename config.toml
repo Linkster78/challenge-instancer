@@ -1,3 +1,6 @@
+[settings]
+max_concurrent_challenges = 2
+
 [discord]
 client_id = "1248440441649500243"
 client_secret = "5j2OiR-OJks6q56ek1zCxJg4s68SITZd"
@@ -6,3 +9,16 @@ server_id = "728386362625097779"
 
 [database]
 file_path = "database.db"
+
+[deployers.docker-stack]
+path = "./deployment-scripts/deploy-docker-stack.sh"
+
+[challenges.my-challenge-1]
+name = "My great challenge"
+ttl = "15m"
+deployer = "docker-stack"
+
+[challenges.my-challenge-2]
+name = "My great challenge, the sequel"
+ttl = "10m"
+deployer = "docker-stack"

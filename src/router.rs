@@ -1,15 +1,19 @@
 use std::collections::HashMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use askama::Template;
-use axum::extract::{Query, State};
+use axum::extract::{Query, State, WebSocketUpgrade};
+use axum::extract::ws::{Message, WebSocket};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
-use tower_sessions::Session;
+use tower_sessions::{Session, SessionStore};
+use tower_sessions::session::Id;
 
-use crate::discord::Discord;
 use crate::{discord, InstancerState};
+use crate::discord::Discord;
 use crate::models::{Challenge, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 
@@ -46,16 +50,40 @@ struct DashboardTemplate {
 pub async fn dashboard(
     session: Session,
     State(_state): State<Arc<InstancerState>>
-) -> Response {
-    if let Ok(Some(uid)) = session.get::<String>("uid").await {
+) -> Result<Response, InternalError> {
+    if let Some(uid) = session.get::<String>("uid").await? {
         let dashboard = DashboardTemplate {
             avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await.unwrap().unwrap()),
             challenges: Vec::new()
         };
-        HtmlTemplate(dashboard).into_response()
+        Ok(HtmlTemplate(dashboard).into_response())
     } else {
-        Redirect::to("/login").into_response()
+        Ok(Redirect::to("/login").into_response())
     }
+}
+
+pub async fn dashboard_ws_handler(
+    ws: WebSocketUpgrade,
+    Query(params): Query<HashMap<String, String>>,
+    State(state): State<Arc<InstancerState>>
+) -> Result<Response, InternalError> {
+    let Some(session_id) = params.get("sid").and_then(|sid: &String| Id::from_str(sid.as_str()).ok()) else {
+        return Ok(StatusCode::UNAUTHORIZED.into_response());
+    };
+
+    let Some(session) = state.session_store.load(&session_id).await? else {
+        return Ok(StatusCode::UNAUTHORIZED.into_response());
+    };
+
+    let Some(uid): Option<String> = session.data.get("uid").and_then(|val| val.as_str()).map(|s| s.to_string()) else {
+        return Ok(StatusCode::UNAUTHORIZED.into_response());
+    };
+
+    Ok(ws.on_upgrade(move |socket| dashboard_handle_ws(Arc::clone(&state), socket, uid)))
+}
+
+pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSocket, uid: String) {
+
 }
 
 pub async fn logout(
@@ -76,7 +104,7 @@ pub async fn login(
     session: Session,
     Query(params): Query<HashMap<String, String>>,
     State(state): State<Arc<InstancerState>>
-) -> Result<Response, InternalError> {
+) -> Result<impl IntoResponse, InternalError> {
     let (auth_url, _) = state.oauth2
         .authorize_url(CsrfToken::new_random)
         .add_scopes(discord::SCOPES.iter().map(|scope| Scope::new(scope.to_string())))
