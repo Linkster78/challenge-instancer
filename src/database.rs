@@ -1,7 +1,6 @@
 use sqlx::{Error, SqlitePool};
-use sqlx::sqlite::SqliteQueryResult;
 
-use crate::models::User;
+use crate::models::{ChallengeInstance, User};
 
 pub struct Database {
     pool: SqlitePool
@@ -20,8 +19,13 @@ impl Database {
             .fetch_optional(&self.pool).await
     }
 
-    pub async fn insert_user(&self, user: &User) -> Result<SqliteQueryResult, Error> {
+    pub async fn insert_user(&self, user: &User) -> Result<(), Error> {
         sqlx::query!("INSERT INTO users VALUES (?, ?, ?, ?, ?)", user.id, user.username, user.display_name, user.avatar, user.creation_time)
-            .execute(&self.pool).await
+            .execute(&self.pool).await.map(|_| ())
+    }
+
+    pub async fn insert_challenge_instance(&self, instance: &ChallengeInstance) -> Result<(), Error> {
+        sqlx::query!("INSERT INTO challenge_instances VALUES (?, ?, ?, ?)", instance.user_id, instance.challenge_id, instance.state, instance.start_time)
+            .execute(&self.pool).await.map(|_| ())
     }
 }

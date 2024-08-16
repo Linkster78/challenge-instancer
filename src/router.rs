@@ -1,20 +1,27 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::time::Duration;
 
+use anyhow::anyhow;
 use askama::Template;
+use axum::Error;
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
+use futures::FutureExt;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
+use serde::{Deserialize, Serialize};
+use tokio::time;
 use tower_sessions::{Session, SessionStore};
 use tower_sessions::session::Id;
 
 use crate::{discord, InstancerState};
+use crate::deployment_worker::{DeploymentRequest, DeploymentState};
 use crate::discord::Discord;
-use crate::models::{Challenge, TimeSinceEpoch, User};
+use crate::models::{Challenge, ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 
 #[derive(Template)]
@@ -43,8 +50,7 @@ where
 #[derive(Template)]
 #[template(path = "dashboard.html")]
 struct DashboardTemplate {
-    avatar_url: String,
-    challenges: Vec<Challenge>
+    avatar_url: String
 }
 
 pub async fn dashboard(
@@ -53,12 +59,52 @@ pub async fn dashboard(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let dashboard = DashboardTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await.unwrap().unwrap()),
-            challenges: Vec::new()
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await.unwrap().unwrap())
         };
         Ok(HtmlTemplate(dashboard).into_response())
     } else {
         Ok(Redirect::to("/login").into_response())
+    }
+}
+
+#[derive(Serialize, Debug)]
+struct ChallengePlayerState {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub ttl: u32,
+    pub state: ChallengeInstanceState
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ServerBoundMessage {
+    ChallengeStart { id: String },
+    ChallengeStop { id: String },
+    ChallengeRestart { id: String },
+    ChallengeExtend { id: String }
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum ClientBoundMessage {
+    ChallengeListing { challenges: HashMap<String, ChallengePlayerState> }
+}
+
+impl From<ClientBoundMessage> for Message {
+    fn from(value: ClientBoundMessage) -> Self {
+        Message::Text(serde_json::to_string(&value).unwrap())
+    }
+}
+
+impl TryFrom<Message> for ServerBoundMessage {
+    type Error = anyhow::Error;
+    fn try_from(value: Message) -> Result<Self, Self::Error> {
+        if let Message::Text(text) = value {
+            Ok(serde_json::from_str(&text)?)
+        } else {
+            Err(anyhow!("invalid message variant, only Text is supported"))
+        }
     }
 }
 
@@ -83,7 +129,67 @@ pub async fn dashboard_ws_handler(
 }
 
 pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSocket, uid: String) {
+    let mut request_tx = state.deployer.request_tx.clone();
+    let mut update_rx = state.deployer.update_tx.read().await.subscribe();
 
+    let challenges: HashMap<String, ChallengePlayerState> = state.deployer.challenges.iter()
+        .map(|(id, challenge)| {
+            let challenge = ChallengePlayerState {
+                id: challenge.id.clone(),
+                name: challenge.name.clone(),
+                description: challenge.description.clone(),
+                ttl: challenge.ttl,
+                state: ChallengeInstanceState::Stopped
+            };
+            (id.clone(), challenge)
+        })
+        .collect();
+
+    let challenge_listing = ClientBoundMessage::ChallengeListing { challenges };
+    let _ = socket.send(challenge_listing.into()).await;
+
+    loop {
+        if let Some(msg) = socket.recv().now_or_never() {
+            match msg.map(|res| res.ok().and_then(|msg| ServerBoundMessage::try_from(msg).ok())) {
+                Some(Some(msg)) => match msg {
+                    ServerBoundMessage::ChallengeStart { id: cid } => {
+                        let instance = ChallengeInstance {
+                            user_id: uid.clone(),
+                            challenge_id: cid.clone(),
+                            state: ChallengeInstanceState::QueuedStart,
+                            start_time: TimeSinceEpoch::now()
+                        };
+
+                        if let Ok(()) = state.database.insert_challenge_instance(&instance).await {
+                            let request = DeploymentRequest {
+                                user_id: uid.clone(),
+                                challenge_id: cid.clone()
+                            };
+                            request_tx.send(request).await.unwrap();
+                        }
+                    }
+                    ServerBoundMessage::ChallengeStop { id: cid } => {
+
+                    }
+                    ServerBoundMessage::ChallengeRestart { id: cid } => {
+
+                    }
+                    ServerBoundMessage::ChallengeExtend { id: cid } => {
+
+                    }
+                }
+                _ => break
+            }
+        }
+
+        while let Ok(update) = update_rx.try_recv() {
+            if update.user_id != uid { continue; }
+            // handle update
+        }
+
+        // Stop the CPU from getting murdered
+        time::sleep(Duration::from_millis(5)).await;
+    }
 }
 
 pub async fn logout(
@@ -139,9 +245,11 @@ pub async fn login(
                             username: discord_user.username,
                             display_name: discord_user.global_name,
                             avatar: discord_user.avatar,
-                            creation_time: TimeSinceEpoch::now().into()
+                            creation_time: TimeSinceEpoch::now()
                         };
-                        state.database.insert_user(&new_user).await?;
+                        // We can ignore the error here, this could only fail in the case of
+                        // a race condition, which wouldn't influence the rest of the function
+                        let _ = state.database.insert_user(&new_user).await;
 
                         new_user
                     }

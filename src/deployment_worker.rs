@@ -1,11 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::sync::mpsc;
-use tokio::task;
 
-use crate::config::{DeployerConfig, InstancerConfig};
+use crate::config::InstancerConfig;
 
 #[derive(Debug)]
 pub struct Challenge {
@@ -16,6 +15,7 @@ pub struct Challenge {
     pub deployer_path: PathBuf
 }
 
+#[derive(Debug)]
 pub struct DeploymentRequest {
     pub user_id: String,
     pub challenge_id: String
@@ -23,32 +23,21 @@ pub struct DeploymentRequest {
 
 #[derive(Clone)]
 pub struct DeploymentUpdate {
-    user_id: String,
-    challenge_id: String,
-    state: DeploymentState
-}
-
-#[derive(Clone)]
-pub enum DeploymentState {
-    None,
-    Queued,
-    Deploying,
-    Deployed,
-    Failed
+    pub user_id: String,
+    pub challenge_id: String
 }
 
 pub struct DeploymentWorker {
+    request_rx: Mutex<mpsc::Receiver<DeploymentRequest>>,
     pub request_tx: mpsc::Sender<DeploymentRequest>,
-    pub update_rx: broadcast::Receiver<DeploymentUpdate>,
+    pub update_tx: RwLock<broadcast::Sender<DeploymentUpdate>>,
     pub challenges: HashMap<String, Challenge>
 }
 
 impl DeploymentWorker {
     pub fn new(config: &InstancerConfig) -> Self {
-        let (request_tx, mut request_rx) = mpsc::channel(128);
-        let (update_tx, update_rx) = broadcast::channel(16);
-
-        task::spawn(async move { Self::do_work(request_rx, update_tx).await });
+        let (request_tx, request_rx) = mpsc::channel(128);
+        let (update_tx, _) = broadcast::channel(16);
 
         let challenges = config.challenges.iter()
             .filter_map(|(id, cfg)|
@@ -65,18 +54,18 @@ impl DeploymentWorker {
             )
             .collect();
 
-        println!("{:#?}", challenges);
-
         DeploymentWorker {
+            request_rx: Mutex::new(request_rx),
             request_tx,
-            update_rx,
+            update_tx: RwLock::new(update_tx),
             challenges
         }
     }
 
-    async fn do_work(mut request_rx: mpsc::Receiver<DeploymentRequest>, update_tx: broadcast::Sender<DeploymentUpdate>) {
+    pub async fn do_work(&self) {
+        let mut request_rx = self.request_rx.lock().await;
         while let Some(request) = request_rx.recv().await {
-
+            println!("{:#?}", request);
         }
     }
 }

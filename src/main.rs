@@ -7,6 +7,7 @@ use axum::Router;
 use axum::routing::get;
 use sqlx::sqlite::SqliteConnectOptions;
 use tokio::net::TcpListener;
+use tokio::task;
 use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
@@ -56,6 +57,9 @@ async fn main() -> anyhow::Result<()> {
         .with_secure(false);
 
     let state = Arc::new(InstancerState::new(config, database, deployer, session_store));
+    let state_c = Arc::clone(&state);
+
+    task::spawn(async move { state_c.deployer.do_work().await });
 
     let app = Router::new()
         .route("/", get(router::dashboard))

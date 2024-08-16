@@ -14,11 +14,12 @@ file_path = "database.db"
 path = "./deployment-scripts/deploy-docker-stack.sh"
 
 [challenges.my-challenge-1]
-name = "My great challenge"
+name = "Mon super défi"
+description = "Un challenge qui a vraiment beaucoup de contenu, bonne chance!"
 ttl = "15m"
 deployer = "docker-stack"
 
 [challenges.my-challenge-2]
-name = "My great challenge, the sequel"
+name = "Mon super défi, la suite"
 ttl = "10m"
 deployer = "docker-stack"

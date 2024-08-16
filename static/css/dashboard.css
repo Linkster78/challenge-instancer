@@ -1,21 +1,25 @@
 main {
     display: grid;
     gap: 1rem;
-    grid-template-columns: repeat(auto-fill, 16rem);
+    grid-template-columns: repeat(auto-fill, 20rem);
+    align-items: start;
     padding: 1rem;
 }
 
 .challenge-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-
     padding: 1rem;
-
     background-color: #333;
     border-radius: .5rem;
 }
 
-.challenge-card h3 {
+.details > * {
     margin-bottom: .5rem;
 }
+
+.actions-none, .actions-deployed, .actions-queued, .actions-deploying {
+    display: none;
+}
+.actions[data-state="none"] > .actions-none { display: inherit; }
+.actions[data-state="deployed"] > .actions-deployed { display: inherit; }
+.actions[data-state="queued"] > .actions-queued { display: inherit; }
+.actions[data-state="deploying"] > .actions-deploying { display: inherit; }
