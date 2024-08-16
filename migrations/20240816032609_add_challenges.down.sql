@@ -1,2 +1,2 @@
-DROP TABLE instance_details;
-DROP TABLE challenge_instances;
+DROP TABLE IF EXISTS instance_details;
+DROP TABLE IF EXISTS challenge_instances;

@@ -1,11 +1,13 @@
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
+
 use serde::Serialize;
 use sqlx::{Decode, Encode, Sqlite};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
 
+#[derive(sqlx::FromRow)]
 pub struct User {
     pub id: String,
     pub username: String,
@@ -14,38 +16,45 @@ pub struct User {
     pub creation_time: TimeSinceEpoch
 }
 
+#[derive(sqlx::FromRow)]
 pub struct ChallengeInstance {
     pub user_id: String,
     pub challenge_id: String,
     pub state: ChallengeInstanceState,
-    pub start_time: TimeSinceEpoch
+    pub start_time: TimeSinceEpoch,
+    #[sqlx(skip)]
+    pub details: Option<Vec<String>>
 }
 
-pub struct Challenge {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub ttl: u32
+#[derive(sqlx::FromRow)]
+pub struct ChallengeInstanceDetail {
+    pub user_id: String,
+    pub challenge_id: String,
+    pub detail: String
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeInstanceState {
     Stopped,
+    Running,
     QueuedStart,
-    Starting,
-    Started,
     QueuedRestart,
     QueuedStop
+}
+
+impl From<String> for ChallengeInstanceState {
+    fn from(value: String) -> Self {
+        value.as_str().into()
+    }
 }
 
 impl From<&str> for ChallengeInstanceState {
     fn from(value: &str) -> Self {
         match value {
             "stopped" => ChallengeInstanceState::Stopped,
+            "running" => ChallengeInstanceState::Running,
             "queued_start" => ChallengeInstanceState::QueuedStart,
-            "starting" => ChallengeInstanceState::Starting,
-            "started" => ChallengeInstanceState::Started,
             "queued_restart" => ChallengeInstanceState::QueuedRestart,
             "queued_stop" => ChallengeInstanceState::QueuedStop,
             v => panic!("unknown challenge instance state: {}", v)
@@ -57,11 +66,10 @@ impl From<&ChallengeInstanceState> for &str {
     fn from(value: &ChallengeInstanceState) -> Self {
         match value {
             ChallengeInstanceState::Stopped => "stopped",
+            ChallengeInstanceState::Running => "running",
             ChallengeInstanceState::QueuedStart => "queued_start",
-            ChallengeInstanceState::Starting => "starting",
-            ChallengeInstanceState::Started => "started",
-            ChallengeInstanceState::QueuedRestart => "queued_restart",
-            ChallengeInstanceState::QueuedStop => "queued_stop"
+            ChallengeInstanceState::QueuedStop => "queued_stop",
+            ChallengeInstanceState::QueuedRestart => "queued_restart"
         }
     }
 }

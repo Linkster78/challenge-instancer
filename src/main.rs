@@ -34,10 +34,8 @@ async fn main() -> anyhow::Result<()> {
 
     let config: InstancerConfig = Config::builder()
         .add_source(File::with_name("config.toml"))
-        .build()
-        .unwrap()
-        .try_deserialize()
-        .unwrap();
+        .build()?
+        .try_deserialize()?;
 
     let sqlite_pool = SqlitePool::connect_with(SqliteConnectOptions::new()
         .create_if_missing(true)
@@ -45,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
         .await.expect("failed to setup sqlite pool for session store");
     let database = Database::new(sqlite_pool.clone()).await?;
 
-    let deployer = DeploymentWorker::new(&config);
+    let deployer = DeploymentWorker::new(&config, database.clone());
 
     let session_store = SqliteStore::new(sqlite_pool);
     session_store.migrate().await.expect("failed to migrate session store");
@@ -70,8 +68,8 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state)
         .layer(session_layer);
 
-    let listener = TcpListener::bind("0.0.0.0:3000").await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }

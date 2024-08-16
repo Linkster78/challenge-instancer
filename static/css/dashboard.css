@@ -16,12 +16,11 @@ main {
     margin-bottom: .5rem;
 }
 
-.actions-stopped, .actions-deployed, .actions-queued-start, .actions-queued-restart, .actions-queued-stop, .actions-deploying {
+.actions-stopped, .actions-running, .actions-queued-start, .actions-queued-stop, .actions-queued-restart {
     display: none;
 }
 .challenge-card[data-state="stopped"] .actions-stopped { display: inherit; }
-.challenge-card[data-state="deployed"] .actions-deployed { display: inherit; }
+.challenge-card[data-state="running"] .actions-running { display: inherit; }
 .challenge-card[data-state="queued_start"] .actions-queued-start { display: inherit; }
-.challenge-card[data-state="queued_restart"] .actions-queued-restart { display: inherit; }
 .challenge-card[data-state="queued_stop"] .actions-queued-stop { display: inherit; }
-.challenge-card[data-state="deploying"] .actions-deploying { display: inherit; }
+.challenge-card[data-state="queued_restart"] .actions-queued-restart { display: inherit; }

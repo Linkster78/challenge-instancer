@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS challenge_instances (
     PRIMARY KEY (user_id, challenge_id)
 );
 
-CREATE TABLE IF NOT EXISTS instance_details (
+CREATE TABLE IF NOT EXISTS challenge_instance_details (
     user_id       TEXT    NOT NULL,
     challenge_id  TEXT    NOT NULL,
     detail        TEXT    NOT NULL,

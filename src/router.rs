@@ -1,11 +1,9 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::anyhow;
 use askama::Template;
-use axum::Error;
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
 use axum::http::StatusCode;
@@ -14,14 +12,14 @@ use futures::FutureExt;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
 use serde::{Deserialize, Serialize};
-use tokio::time;
+use tokio::task;
 use tower_sessions::{Session, SessionStore};
 use tower_sessions::session::Id;
 
 use crate::{discord, InstancerState};
-use crate::deployment_worker::{DeploymentRequest};
+use crate::deployment_worker::{DeploymentRequest, DeploymentRequestCommand, DeploymentUpdateDetails};
 use crate::discord::Discord;
-use crate::models::{Challenge, ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
+use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 
 #[derive(Template)]
@@ -59,7 +57,7 @@ pub async fn dashboard(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let dashboard = DashboardTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await.unwrap().unwrap())
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?.unwrap())
         };
         Ok(HtmlTemplate(dashboard).into_response())
     } else {
@@ -68,12 +66,13 @@ pub async fn dashboard(
 }
 
 #[derive(Serialize, Debug)]
-struct ChallengePlayerState {
+pub struct ChallengePlayerState {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
     pub ttl: u32,
-    pub state: ChallengeInstanceState
+    pub state: ChallengeInstanceState,
+    pub details: Option<Vec<String>>
 }
 
 #[derive(Debug, Deserialize)]
@@ -126,22 +125,34 @@ pub async fn dashboard_ws_handler(
         return Ok(StatusCode::UNAUTHORIZED.into_response());
     };
 
-    Ok(ws.on_upgrade(move |socket| dashboard_handle_ws(Arc::clone(&state), socket, uid)))
+    Ok(ws.on_upgrade(move |socket| dashboard_handle_ws_unwrap(Arc::clone(&state), socket, uid)))
 }
 
-pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSocket, uid: String) {
-    let mut request_tx = state.deployer.request_tx.clone();
+pub async fn dashboard_handle_ws_unwrap(state: Arc<InstancerState>, socket: WebSocket, uid: String) {
+    dashboard_handle_ws(state, socket, uid).await.unwrap()
+}
+
+pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSocket, uid: String) -> anyhow::Result<()> {
+    let request_tx = state.deployer.request_tx.clone();
     let mut update_rx = state.deployer.update_tx.read().await.subscribe();
 
+    let challenge_instances = state.database.get_user_challenge_instances(&uid).await?;
     let challenges: HashMap<String, ChallengePlayerState> = state.deployer.challenges.iter()
         .map(|(id, challenge)| {
+            let (state, details) = match challenge_instances.iter().filter(|instance| &instance.challenge_id == id).next() {
+                None => (ChallengeInstanceState::Stopped, None),
+                Some(instance) => (instance.state.clone(), instance.details.clone())
+            };
+
             let challenge = ChallengePlayerState {
                 id: challenge.id.clone(),
                 name: challenge.name.clone(),
                 description: challenge.description.clone(),
                 ttl: challenge.ttl,
-                state: ChallengeInstanceState::Stopped
+                state,
+                details
             };
+
             (id.clone(), challenge)
         })
         .collect();
@@ -153,46 +164,75 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
         if let Some(msg) = socket.recv().now_or_never() {
             match msg.map(|res| res.ok().and_then(|msg| ServerBoundMessage::try_from(msg).ok())) {
                 Some(Some(msg)) => match msg {
-                    ServerBoundMessage::ChallengeStart { id: cid } => {
+                    ServerBoundMessage::ChallengeStart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
                         let instance = ChallengeInstance {
                             user_id: uid.clone(),
                             challenge_id: cid.clone(),
                             state: ChallengeInstanceState::QueuedStart,
-                            start_time: TimeSinceEpoch::now()
+                            start_time: TimeSinceEpoch::now(),
+                            details: None
                         };
 
-                        if let Ok(()) = state.database.insert_challenge_instance(&instance).await {
+                        match state.database.insert_challenge_instance(&instance).await {
+                            Ok(()) => {
+                                let request = DeploymentRequest {
+                                    user_id: uid.clone(),
+                                    challenge_id: cid.clone(),
+                                    command: DeploymentRequestCommand::Start
+                                };
+                                request_tx.send(request).await?;
+
+                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart };
+                                let _ = socket.send(challenge_state_change.into()).await;
+                            },
+                            Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {} /* challenge instance already exists */,
+                            Err(e) => panic!("{}", e)
+                        }
+                    }
+                    ServerBoundMessage::ChallengeStop { id: cid } if state.deployer.challenges.contains_key(&cid) => {
+                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
                             let request = DeploymentRequest {
                                 user_id: uid.clone(),
-                                challenge_id: cid.clone()
+                                challenge_id: cid.clone(),
+                                command: DeploymentRequestCommand::Stop
                             };
-                            request_tx.send(request).await.unwrap();
+                            request_tx.send(request).await?;
 
-                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart };
+                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop };
                             let _ = socket.send(challenge_state_change.into()).await;
                         }
                     }
-                    ServerBoundMessage::ChallengeStop { id: cid } => {
+                    ServerBoundMessage::ChallengeRestart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
+                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
+                            let request = DeploymentRequest {
+                                user_id: uid.clone(),
+                                challenge_id: cid.clone(),
+                                command: DeploymentRequestCommand::Restart
+                            };
+                            request_tx.send(request).await?;
 
+                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart };
+                            let _ = socket.send(challenge_state_change.into()).await;
+                        }
                     }
-                    ServerBoundMessage::ChallengeRestart { id: cid } => {
-
-                    }
-                    ServerBoundMessage::ChallengeExtend { id: cid } => {
-
-                    }
+                    ServerBoundMessage::ChallengeExtend { id: cid } if state.deployer.challenges.contains_key(&cid) => {},
+                    _ => return Ok(()) /* received command for unknown challenge from client, close connection */
                 }
-                _ => break
+                _ => return Ok(()) /* received invalid message from client, close connection */
             }
         }
 
         while let Ok(update) = update_rx.try_recv() {
             if update.user_id != uid { continue; }
-            // handle update
+            match update.details {
+                DeploymentUpdateDetails::StateChange { state } => {
+                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state };
+                    let _ = socket.send(challenge_state_change.into()).await;
+                }
+            }
         }
 
-        // Stop the CPU from getting murdered
-        time::sleep(Duration::from_millis(5)).await;
+        task::yield_now().await;
     }
 }
 
@@ -251,6 +291,7 @@ pub async fn login(
                             avatar: discord_user.avatar,
                             creation_time: TimeSinceEpoch::now()
                         };
+
                         // We can ignore the error here, this could only fail in the case of
                         // a race condition, which wouldn't influence the rest of the function
                         let _ = state.database.insert_user(&new_user).await;
@@ -260,8 +301,8 @@ pub async fn login(
                     Some(user) => user
                 };
 
-                session.insert("uid", user.id).await.unwrap();
-                session.insert("avatar", user.avatar).await.unwrap();
+                session.insert("uid", user.id).await?;
+                session.insert("avatar", user.avatar).await?;
 
                 Ok(Redirect::to("/").into_response())
             },
