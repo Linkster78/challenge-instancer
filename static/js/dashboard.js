@@ -22,6 +22,7 @@ function loadChallengeDOM(challenge) {
     challengesContainer.appendChild(card);
     card.classList.add('challenge-card');
     card.setAttribute('data-cid', challenge.id);
+    card.setAttribute('data-state', challenge.state);
 
     const details = document.createElement('div');
     card.appendChild(details);
@@ -40,14 +41,13 @@ function loadChallengeDOM(challenge) {
     const actions = document.createElement('div');
     card.appendChild(actions);
     actions.classList.add('actions');
-    actions.setAttribute('data-state', challenge.state.type);
 
-        const actionsNone = document.createElement('div');
-        actions.appendChild(actionsNone);
-        actionsNone.classList.add('actions-none');
+        const actionsStopped = document.createElement('div');
+        actions.appendChild(actionsStopped);
+        actionsStopped.classList.add('actions-stopped');
 
             const startButton = document.createElement('button');
-            actionsNone.appendChild(startButton);
+            actionsStopped.appendChild(startButton);
             startButton.textContent = 'Démarrer';
             startButton.setAttribute('data-action', 'start');
 
@@ -70,13 +70,25 @@ function loadChallengeDOM(challenge) {
             extendButton.textContent = 'Étendre';
             extendButton.setAttribute('data-action', 'extend');
 
-        const actionsQueued = document.createElement('div');
-        actions.appendChild(actionsQueued);
-        actionsQueued.classList.add('actions-queued');
+        const actionsQueuedStart = document.createElement('div');
+        actions.appendChild(actionsQueuedStart);
+        actionsQueuedStart.classList.add('actions-queued-start');
+        actionsQueuedStart.textContent = 'queued start';
+
+        const actionsQueuedRestart = document.createElement('div');
+        actions.appendChild(actionsQueuedRestart);
+        actionsQueuedRestart.classList.add('actions-queued-restart');
+        actionsQueuedRestart.textContent = 'queued restart';
+
+        const actionsQueuedStop = document.createElement('div');
+        actions.appendChild(actionsQueuedStop);
+        actionsQueuedStop.classList.add('actions-queued-stop');
+        actionsQueuedStop.textContent = 'queued stop';
 
         const actionsDeploying = document.createElement('div');
         actions.appendChild(actionsDeploying);
         actionsDeploying.classList.add('actions-deploying');
+        actionsDeploying.textContent = 'deploying';
 
     challenge.dom = card;
 }
@@ -91,7 +103,10 @@ ws.onmessage = e => {
                 loadChallengeDOM(challenges[id]);
             }
             break;
+        case 'challenge_state_change':
+            const challenge = challenges[msg.id];
+            challenge.state = msg.state;
+            challenge.dom.setAttribute('data-state', msg.state);
+            break;
     }
-
-    ws.send(JSON.stringify({'type': 'challenge_start', 'id': 'my-challenge-1'}))
 };

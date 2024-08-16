@@ -16,10 +16,12 @@ main {
     margin-bottom: .5rem;
 }
 
-.actions-none, .actions-deployed, .actions-queued, .actions-deploying {
+.actions-stopped, .actions-deployed, .actions-queued-start, .actions-queued-restart, .actions-queued-stop, .actions-deploying {
     display: none;
 }
-.actions[data-state="none"] > .actions-none { display: inherit; }
-.actions[data-state="deployed"] > .actions-deployed { display: inherit; }
-.actions[data-state="queued"] > .actions-queued { display: inherit; }
-.actions[data-state="deploying"] > .actions-deploying { display: inherit; }
+.challenge-card[data-state="stopped"] .actions-stopped { display: inherit; }
+.challenge-card[data-state="deployed"] .actions-deployed { display: inherit; }
+.challenge-card[data-state="queued_start"] .actions-queued-start { display: inherit; }
+.challenge-card[data-state="queued_restart"] .actions-queued-restart { display: inherit; }
+.challenge-card[data-state="queued_stop"] .actions-queued-stop { display: inherit; }
+.challenge-card[data-state="deploying"] .actions-deploying { display: inherit; }

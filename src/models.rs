@@ -1,6 +1,6 @@
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
-
+use serde::Serialize;
 use sqlx::{Decode, Encode, Sqlite};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
@@ -28,7 +28,8 @@ pub struct Challenge {
     pub ttl: u32
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum ChallengeInstanceState {
     Stopped,
     QueuedStart,
