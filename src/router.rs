@@ -8,11 +8,9 @@ use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use futures::FutureExt;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
 use serde::{Deserialize, Serialize};
-use tokio::task;
 use tower_sessions::{Session, SessionStore};
 use tower_sessions::session::Id;
 
@@ -161,78 +159,78 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
     let _ = socket.send(challenge_listing.into()).await;
 
     loop {
-        if let Some(msg) = socket.recv().now_or_never() {
-            match msg.map(|res| res.ok().and_then(|msg| ServerBoundMessage::try_from(msg).ok())) {
-                Some(Some(msg)) => match msg {
-                    ServerBoundMessage::ChallengeStart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                        let instance = ChallengeInstance {
-                            user_id: uid.clone(),
-                            challenge_id: cid.clone(),
-                            state: ChallengeInstanceState::QueuedStart,
-                            details: None,
-                            start_time: TimeSinceEpoch::now(),
-                        };
+        tokio::select! {
+            Some(res) = socket.recv() => {
+                match res.ok().and_then(|msg| ServerBoundMessage::try_from(msg).ok()) {
+                    Some(msg) => match msg {
+                        ServerBoundMessage::ChallengeStart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
+                            let instance = ChallengeInstance {
+                                user_id: uid.clone(),
+                                challenge_id: cid.clone(),
+                                state: ChallengeInstanceState::QueuedStart,
+                                details: None,
+                                start_time: TimeSinceEpoch::now(),
+                            };
 
-                        match state.database.insert_challenge_instance(&instance).await {
-                            Ok(()) => {
+                            match state.database.insert_challenge_instance(&instance).await {
+                                Ok(()) => {
+                                    let request = DeploymentRequest {
+                                        user_id: uid.clone(),
+                                        challenge_id: cid.clone(),
+                                        command: DeploymentRequestCommand::Start
+                                    };
+                                    request_tx.send(request).await?;
+
+                                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart };
+                                    let _ = socket.send(challenge_state_change.into()).await;
+                                },
+                                Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {} /* challenge instance already exists */,
+                                Err(e) => panic!("{}", e)
+                            }
+                        }
+                        ServerBoundMessage::ChallengeStop { id: cid } if state.deployer.challenges.contains_key(&cid) => {
+                            if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
                                 let request = DeploymentRequest {
                                     user_id: uid.clone(),
                                     challenge_id: cid.clone(),
-                                    command: DeploymentRequestCommand::Start
+                                    command: DeploymentRequestCommand::Stop
                                 };
                                 request_tx.send(request).await?;
 
-                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart };
+                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop };
                                 let _ = socket.send(challenge_state_change.into()).await;
-                            },
-                            Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {} /* challenge instance already exists */,
-                            Err(e) => panic!("{}", e)
+                            }
                         }
-                    }
-                    ServerBoundMessage::ChallengeStop { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
-                            let request = DeploymentRequest {
-                                user_id: uid.clone(),
-                                challenge_id: cid.clone(),
-                                command: DeploymentRequestCommand::Stop
-                            };
-                            request_tx.send(request).await?;
+                        ServerBoundMessage::ChallengeRestart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
+                            if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
+                                let request = DeploymentRequest {
+                                    user_id: uid.clone(),
+                                    challenge_id: cid.clone(),
+                                    command: DeploymentRequestCommand::Restart
+                                };
+                                request_tx.send(request).await?;
 
-                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop };
-                            let _ = socket.send(challenge_state_change.into()).await;
+                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart };
+                                let _ = socket.send(challenge_state_change.into()).await;
+                            }
                         }
+                        ServerBoundMessage::ChallengeExtend { id: cid } if state.deployer.challenges.contains_key(&cid) => {},
+                        _ => return Ok(()) /* received command for unknown challenge from client, close connection */
                     }
-                    ServerBoundMessage::ChallengeRestart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
-                            let request = DeploymentRequest {
-                                user_id: uid.clone(),
-                                challenge_id: cid.clone(),
-                                command: DeploymentRequestCommand::Restart
-                            };
-                            request_tx.send(request).await?;
-
-                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart };
-                            let _ = socket.send(challenge_state_change.into()).await;
-                        }
-                    }
-                    ServerBoundMessage::ChallengeExtend { id: cid } if state.deployer.challenges.contains_key(&cid) => {},
-                    _ => return Ok(()) /* received command for unknown challenge from client, close connection */
-                }
-                _ => return Ok(()) /* received invalid message from client, close connection */
-            }
-        }
-
-        while let Ok(update) = update_rx.try_recv() {
-            if update.user_id != uid { continue; }
-            match update.details {
-                DeploymentUpdateDetails::StateChange { state } => {
-                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state };
-                    let _ = socket.send(challenge_state_change.into()).await;
+                    None => return Ok(()) /* received invalid message, close connection */
                 }
             }
+            Ok(update) = update_rx.recv() => {
+                if update.user_id != uid { continue; }
+                match update.details {
+                    DeploymentUpdateDetails::StateChange { state } => {
+                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state };
+                        let _ = socket.send(challenge_state_change.into()).await;
+                    }
+                }
+            },
+            else => return Ok(()) /* socket has closed or update sender has closed, indicating that the deployment worker is down */
         }
-
-        task::yield_now().await;
     }
 }
 

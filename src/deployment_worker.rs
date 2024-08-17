@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::sync::mpsc;
+use tokio_util::sync::CancellationToken;
 use crate::config::InstancerConfig;
 use crate::database::Database;
 use crate::models::ChallengeInstanceState;
@@ -94,11 +95,12 @@ pub struct DeploymentWorker {
     pub request_tx: mpsc::Sender<DeploymentRequest>,
     pub update_tx: RwLock<broadcast::Sender<DeploymentUpdate>>,
     pub challenges: HashMap<String, Challenge>,
-    pub database: Database
+    pub database: Database,
+    shutdown_token: CancellationToken
 }
 
 impl DeploymentWorker {
-    pub fn new(config: &InstancerConfig, database: Database) -> Self {
+    pub fn new(config: &InstancerConfig, database: Database, shutdown_token: CancellationToken) -> Self {
         let (request_tx, request_rx) = mpsc::channel(128);
         let (update_tx, _) = broadcast::channel(16);
 
@@ -115,6 +117,14 @@ impl DeploymentWorker {
                     (id.clone(), challenge)
                 })
             )
+            .filter(|(_, challenge)| {
+                if challenge.deployer_path.exists() {
+                    true
+                } else {
+                    tracing::warn!("disabled challenge {}: deployer does not exist at \"{}\"", challenge.id, challenge.deployer_path.display());
+                    true
+                }
+            })
             .collect();
 
         DeploymentWorker {
@@ -122,74 +132,88 @@ impl DeploymentWorker {
             request_tx,
             update_tx: RwLock::new(update_tx),
             challenges,
-            database
+            database,
+            shutdown_token,
         }
     }
 
     pub async fn do_work(&self) -> anyhow::Result<()> {
         let mut request_rx = self.request_rx.lock().await;
 
-        while let Some(request) = request_rx.recv().await {
-            if let Some(challenge) = self.challenges.get(&request.challenge_id) {
-                let new_state = match &request.command {
-                    DeploymentRequestCommand::Start => {
-                        match challenge.deploy(&request.user_id, DeploymentRequestCommand::Start).await {
-                            Ok(details) => {
-                                tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
-                                ChallengeInstanceState::Running
-                            }
-                            Err(_) => {
-                                tracing::error!("couldn't start challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
-                                ChallengeInstanceState::Stopped
-                            }
-                        }
+        while !self.shutdown_token.is_cancelled() || request_rx.len() > 0 {
+            tokio::select! {
+                _ = self.shutdown_token.cancelled() => {},
+                req = request_rx.recv() => {
+                    if let Some(request) = req {
+                        self.handle_request(request).await?;
                     }
-                    DeploymentRequestCommand::Stop => {
-                        match challenge.deploy(&request.user_id, DeploymentRequestCommand::Stop).await {
-                            Ok(_) => {
-                                tracing::info!("stopped challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
-                                ChallengeInstanceState::Stopped
-                            }
-                            Err(_) => {
-                                tracing::error!("couldn't stop challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                                ChallengeInstanceState::Running
-                            }
-                        }
-                    }
-                    DeploymentRequestCommand::Restart => {
-                        match challenge.deploy(&request.user_id, DeploymentRequestCommand::Restart).await {
-                            Ok(_) => {
-                                tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                                ChallengeInstanceState::Running
-                            }
-                            Err(_) => {
-                                tracing::error!("couldn't restart challenge {} for user {}", challenge.id, request.user_id);
-
-                                self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                                ChallengeInstanceState::Running
-                            }
-                        }
-                    }
-                };
-
-                let deployment_state_change = DeploymentUpdate {
-                    user_id: request.user_id,
-                    challenge_id: request.challenge_id,
-                    details: DeploymentUpdateDetails::StateChange { state: new_state },
-                };
-                let _ = self.update_tx.write().await.send(deployment_state_change);
+                }
             }
         }
+
+        Ok(())
+    }
+
+    async fn handle_request(&self, request: DeploymentRequest) -> anyhow::Result<()> {
+        let Some(challenge) = self.challenges.get(&request.challenge_id) else { return Ok(()) };
+
+        let new_state = match &request.command {
+            DeploymentRequestCommand::Start => {
+                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Start).await {
+                    Ok(details) => {
+                        tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
+                        ChallengeInstanceState::Running
+                    }
+                    Err(_) => {
+                        tracing::error!("couldn't start challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
+                        ChallengeInstanceState::Stopped
+                    }
+                }
+            }
+            DeploymentRequestCommand::Stop => {
+                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Stop).await {
+                    Ok(_) => {
+                        tracing::info!("stopped challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
+                        ChallengeInstanceState::Stopped
+                    }
+                    Err(_) => {
+                        tracing::error!("couldn't stop challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        ChallengeInstanceState::Running
+                    }
+                }
+            }
+            DeploymentRequestCommand::Restart => {
+                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Restart).await {
+                    Ok(_) => {
+                        tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        ChallengeInstanceState::Running
+                    }
+                    Err(_) => {
+                        tracing::error!("couldn't restart challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        ChallengeInstanceState::Running
+                    }
+                }
+            }
+        };
+
+        let deployment_state_change = DeploymentUpdate {
+            user_id: request.user_id,
+            challenge_id: request.challenge_id,
+            details: DeploymentUpdateDetails::StateChange { state: new_state },
+        };
+        let _ = self.update_tx.write().await.send(deployment_state_change);
 
         Ok(())
     }

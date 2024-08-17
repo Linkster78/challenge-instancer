@@ -9,7 +9,8 @@ use axum::routing::get;
 use sqlx::ConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
 use tokio::net::TcpListener;
-use tokio::task;
+use tokio::{signal, task};
+use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
@@ -46,7 +47,8 @@ async fn main() -> anyhow::Result<()> {
         .await.expect("failed to setup sqlite pool for session store");
     let database = Database::new(sqlite_pool.clone()).await?;
 
-    let deployer = DeploymentWorker::new(&config, database.clone());
+    let shutdown_token = CancellationToken::new();
+    let deployer = DeploymentWorker::new(&config, database.clone(), shutdown_token.clone());
 
     let session_store = SqliteStore::new(sqlite_pool);
     session_store.migrate().await.expect("failed to migrate session store");
@@ -60,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
     let state = Arc::new(InstancerState::new(config, database, deployer, session_store));
     let state_c = Arc::clone(&state);
 
-    task::spawn(async move { state_c.deployer.do_work().await });
+    let deployer_work_handle = task::spawn(async move { state_c.deployer.do_work().await });
 
     let app = Router::new()
         .route("/", get(router::dashboard))
@@ -72,7 +74,36 @@ async fn main() -> anyhow::Result<()> {
         .layer(session_layer);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
-    axum::serve(listener, app).await?;
+    axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
+
+    tracing::info!("shutdown requested, draining pending deployment requests...");
+
+    shutdown_token.cancel();
+    deployer_work_handle.await??;
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
