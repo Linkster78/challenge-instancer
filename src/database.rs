@@ -1,5 +1,5 @@
 use sqlx::{Error, SqlitePool};
-use crate::models::{ChallengeInstance, ChallengeInstanceDetail, ChallengeInstanceState, User};
+use crate::models::{ChallengeInstance, ChallengeInstanceState, User};
 
 #[derive(Clone)]
 pub struct Database {
@@ -31,10 +31,11 @@ impl Database {
     }
 
     pub async fn insert_challenge_instance(&self, instance: &ChallengeInstance) -> Result<(), Error> {
-        sqlx::query("INSERT INTO challenge_instances VALUES (?, ?, ?, ?)")
+        sqlx::query("INSERT INTO challenge_instances VALUES (?, ?, ?, ?, ?)")
             .bind(&instance.user_id)
             .bind(&instance.challenge_id)
             .bind(&instance.state)
+            .bind(&instance.details)
             .bind(&instance.start_time)
             .execute(&self.pool).await.map(|_| ())
     }
@@ -57,38 +58,25 @@ impl Database {
             .execute(&self.pool).await.map(|_| ())
     }
 
-    pub async fn stop_challenge_instance(&self, user_id: &str, challenge_id: &str) -> Result<(), Error> {
-        let mut tx = self.pool.begin().await?;
-
-        sqlx::query("DELETE FROM challenge_instance_details WHERE user_id = ? AND challenge_id = ?")
+    pub async fn populate_running_challenge_instance(&self, user_id: &str, challenge_id: &str, details: &str) -> Result<(), Error> {
+        sqlx::query("UPDATE challenge_instances SET state = ?, details = ? WHERE user_id = ? AND challenge_id = ?")
+            .bind(ChallengeInstanceState::Running)
+            .bind(details)
             .bind(user_id)
             .bind(challenge_id)
-            .execute(&mut *tx)
-            .await?;
+            .execute(&self.pool).await.map(|_| ())
+    }
+
+    pub async fn delete_challenge_instance(&self, user_id: &str, challenge_id: &str) -> Result<(), Error> {
         sqlx::query("DELETE FROM challenge_instances WHERE user_id = ? AND challenge_id = ?")
             .bind(user_id)
             .bind(challenge_id)
-            .execute(&mut *tx)
-            .await?;
-
-        tx.commit().await
+            .execute(&self.pool).await.map(|_| ())
     }
 
     pub async fn get_user_challenge_instances(&self, user_id: &str) -> Result<Vec<ChallengeInstance>, Error> {
-        let instances: Vec<ChallengeInstance> = sqlx::query_as("SELECT * FROM challenge_instances WHERE user_id = ?")
+        sqlx::query_as("SELECT * FROM challenge_instances WHERE user_id = ?")
             .bind(user_id)
-            .fetch_all(&self.pool).await?;
-        let details: Vec<ChallengeInstanceDetail> = sqlx::query_as("SELECT * FROM challenge_instance_details WHERE user_id = ?")
-            .bind(user_id)
-            .fetch_all(&self.pool).await?;
-
-        Ok(instances.into_iter().map(|mut instance| {
-            let instance_details: Vec<String> = details.iter()
-                .filter(|detail| detail.challenge_id == instance.challenge_id)
-                .map(|detail| detail.detail.clone())
-                .collect();
-            let _ = instance.details.insert(instance_details);
-            instance
-        }).collect())
+            .fetch_all(&self.pool).await
     }
 }

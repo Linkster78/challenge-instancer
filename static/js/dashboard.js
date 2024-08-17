@@ -99,16 +99,10 @@ function loadChallengeDOM(challenge) {
 
         switch(action) {
             case 'start':
-                ws.send(JSON.stringify({'type': 'challenge_start', 'id': challenge.id}))
-                break;
             case 'stop':
-                ws.send(JSON.stringify({'type': 'challenge_stop', 'id': challenge.id}))
-                break;
             case 'restart':
-                ws.send(JSON.stringify({'type': 'challenge_restart', 'id': challenge.id}))
-                break;
             case 'extend':
-                ws.send(JSON.stringify({'type': 'challenge_extend', 'id': challenge.id}))
+                ws.send(JSON.stringify({'type': 'challenge_' + action, 'id': challenge.id}))
                 break;
             default:
                 return;

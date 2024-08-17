@@ -72,7 +72,7 @@ pub struct ChallengePlayerState {
     pub description: Option<String>,
     pub ttl: u32,
     pub state: ChallengeInstanceState,
-    pub details: Option<Vec<String>>
+    pub details: Option<String>
 }
 
 #[derive(Debug, Deserialize)]
@@ -169,8 +169,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                             user_id: uid.clone(),
                             challenge_id: cid.clone(),
                             state: ChallengeInstanceState::QueuedStart,
+                            details: None,
                             start_time: TimeSinceEpoch::now(),
-                            details: None
                         };
 
                         match state.database.insert_challenge_instance(&instance).await {

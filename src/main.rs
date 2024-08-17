@@ -1,10 +1,12 @@
 extern crate alloc;
+extern crate core;
 
 use std::sync::Arc;
 
 use ::config::{Config, File};
 use axum::Router;
 use axum::routing::get;
+use sqlx::ConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
 use tokio::net::TcpListener;
 use tokio::task;
@@ -13,7 +15,7 @@ use tower_sessions::{Expiry, SessionManagerLayer};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration;
 use tower_sessions_sqlx_store::{SqliteStore, sqlx::SqlitePool};
-
+use tracing::log::LevelFilter;
 use crate::config::InstancerConfig;
 use crate::database::Database;
 use crate::deployment_worker::DeploymentWorker;
@@ -39,6 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     let sqlite_pool = SqlitePool::connect_with(SqliteConnectOptions::new()
         .create_if_missing(true)
+        .log_statements(LevelFilter::Trace)
         .filename(config.database.file_path.clone()))
         .await.expect("failed to setup sqlite pool for session store");
     let database = Database::new(sqlite_pool.clone()).await?;

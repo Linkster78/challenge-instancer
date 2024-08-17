@@ -21,16 +21,8 @@ pub struct ChallengeInstance {
     pub user_id: String,
     pub challenge_id: String,
     pub state: ChallengeInstanceState,
-    pub start_time: TimeSinceEpoch,
-    #[sqlx(skip)]
-    pub details: Option<Vec<String>>
-}
-
-#[derive(sqlx::FromRow)]
-pub struct ChallengeInstanceDetail {
-    pub user_id: String,
-    pub challenge_id: String,
-    pub detail: String
+    pub details: Option<String>,
+    pub start_time: TimeSinceEpoch
 }
 
 #[derive(Debug, Serialize, Clone)]
