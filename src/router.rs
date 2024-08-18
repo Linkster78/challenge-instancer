@@ -15,7 +15,7 @@ use tower_sessions::{Session, SessionStore};
 use tower_sessions::session::Id;
 
 use crate::{discord, InstancerState};
-use crate::deployment_worker::{DeploymentRequest, DeploymentRequestCommand, DeploymentUpdateDetails};
+use crate::deployment_worker::{DeploymentRequest, DeploymentRequestCommand, DeploymentUpdateDetails, MessageSeverity};
 use crate::discord::Discord;
 use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
@@ -86,7 +86,8 @@ enum ServerBoundMessage {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientBoundMessage {
     ChallengeListing { challenges: HashMap<String, ChallengePlayerState> },
-    ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String> }
+    ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String> },
+    Message { contents: String, severity: MessageSeverity }
 }
 
 impl From<ClientBoundMessage> for Message {
@@ -228,6 +229,10 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                     DeploymentUpdateDetails::StateChange { state, details } => {
                         let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details };
                         let _ = socket.send(challenge_state_change.into()).await;
+                    }
+                    DeploymentUpdateDetails::Message{ contents, severity } => {
+                        let message = ClientBoundMessage::Message { contents, severity };
+                        let _ = socket.send(message.into()).await;
                     }
                 }
             },

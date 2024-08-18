@@ -1,4 +1,5 @@
 #!/bin/bash
+set -eu
 
 # Example deployment script that creates a file
 # The arguments are passed as follows
@@ -10,6 +11,8 @@
 
 uid_hash=$(echo -n "$3" | md5sum | head -c8)
 filename="$2-$uid_hash"
+
+exit 125
 
 if [[ "$1" == "start" ]]; then
   echo "creating file $filename"

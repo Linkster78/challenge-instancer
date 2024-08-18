@@ -134,5 +134,15 @@ ws.onmessage = e => {
                 challenge.dom.querySelector('pre').textContent = msg.details;
             }
             break;
+        case 'message':
+            Toastify({
+                text: msg.contents,
+                className: msg.severity,
+                close: msg.severity === 'error',
+                duration: msg.severity === 'error' ? -1 : 2500,
+                position: 'right',
+                gravity: 'bottom'
+            }).showToast();
+            break;
     }
 };

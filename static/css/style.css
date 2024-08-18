@@ -18,6 +18,12 @@ p, h1, h2, h3 {
     margin: 0;
 }
 
+pre {
+    overflow-x: scroll;
+    padding: .5rem;
+    background-color: #222;
+}
+
 .center-contents {
     display: flex;
     flex-direction: column;
@@ -35,3 +41,12 @@ p, h1, h2, h3 {
 .error {
     color: #f88;
 }
+
+.toastify.success, .toastify.info, .toastify.warning, .toastify.error {
+    box-shadow: none;
+    color: var(--text-color);
+}
+.toastify.success { background: #28a745; }
+.toastify.info { background: #007bff; }
+.toastify.warning { background: #ffc107; }
+.toastify.error { background: #dc3545; }
