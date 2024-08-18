@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::process::Stdio;
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::sync::mpsc;
-use tokio::time;
 use tokio_util::sync::CancellationToken;
 use crate::config::InstancerConfig;
 use crate::database::Database;
@@ -26,29 +26,42 @@ impl Challenge {
         tracing::debug!("[{}] calling script: \"{}\"", self.id, self.deployer_path.display());
         tracing::debug!("[{}] args: \"{}\" \"{}\" \"{}\"", self.id, action_str, &self.id, user_id);
 
-        let mut command = Command::new(&self.deployer_path);
-        command.arg(action_str);
-        command.arg(&self.id);
-        command.arg(user_id);
+        let mut command = Command::new("/bin/bash");
+        command
+            .arg(&self.deployer_path)
+            .arg(action_str)
+            .arg(&self.id)
+            .arg(user_id)
+            .arg("2>&1")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
-        let (success, output): (bool, String) = match command.output().await {
-            Ok(output) => (output.status.success(), String::from_utf8_lossy(&output.stdout).to_string()),
+        let mut child = match command.spawn() {
+            Ok(child) => child,
             Err(err) => {
                 tracing::error!("[{}] couldn't spawn child process: {:?}", self.id, err);
                 return Err(());
             }
         };
 
+        let stdout = match &mut child.stdout {
+            None => return Err(()),
+            Some(stdout) => BufReader::new(stdout)
+        };
+        let mut stdout_lines = stdout.lines();
+
         let mut details = String::new();
-        for line in output.lines() {
+        while let Some(line) = stdout_lines.next_line().await.map_err(|_| ())? {
             tracing::debug!("[{}] {}", self.id, line);
-            if success && line.starts_with("$") {
+            if line.starts_with("$") {
                 if details.len() != 0 { details.push('\n'); }
                 details.push_str(&line[2..]);
             }
         }
 
-        if success {
+        let output = child.wait_with_output().await.map_err(|_| ())?;
+        if output.status.success() {
             Ok(details)
         } else {
             Err(())
@@ -124,7 +137,7 @@ impl DeploymentWorker {
                     true
                 } else {
                     tracing::warn!("disabled challenge {}: deployer does not exist at \"{}\"", challenge.id, challenge.deployer_path.display());
-                    true
+                    false
                 }
             })
             .collect();
@@ -147,7 +160,6 @@ impl DeploymentWorker {
                 _ = self.shutdown_token.cancelled() => {},
                 req = request_rx.recv() => {
                     if let Some(request) = req {
-                        time::sleep(Duration::from_secs(2)).await;
                         self.handle_request(request).await?;
                     }
                 }

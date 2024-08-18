@@ -163,7 +163,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
             Some(res) = socket.recv() => {
                 if state.shutdown_token.is_cancelled() { continue; }
 
-                match res.ok().and_then(|msg| ServerBoundMessage::try_from(msg).ok()) {
+                match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {
                         ServerBoundMessage::ChallengeStart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
                             let instance = ChallengeInstance {

@@ -10,24 +10,19 @@ server_id = "728386362625097779"
 [database]
 file_path = "database.db"
 
-[deployers.docker-stack]
-path = "./deployment-scripts/deploy-docker-stack.sh"
-
 [deployers.file]
 path = "./deployment-scripts/deploy-file.sh"
 
+[deployers.incus]
+path = "./deployment-scripts/deploy-incus.sh"
+
 [challenges.my-challenge-1]
-name = "Mon super défi"
-description = "Un challenge qui a vraiment beaucoup de contenu, bonne chance!"
-ttl = "15m"
-deployer = "docker-stack"
-
-[challenges.my-challenge-2]
-name = "Mon super défi, la suite"
-ttl = "10m"
-deployer = "docker-stack"
-
-[challenges.my-challenge-3]
-name = "Défi bizarre"
+name = "Un certain défi"
+description = "Avec des détails de déploiement quelconques..."
 ttl = "1m"
 deployer = "file"
+
+[challenges.web-1]
+name = "Nginx 🎡"
+ttl = "5m"
+deployer = "incus"
