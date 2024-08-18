@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::time::Duration;
 use tokio::process::Command;
 use tokio::sync::{broadcast, Mutex, RwLock};
 use tokio::sync::mpsc;
+use tokio::time;
 use tokio_util::sync::CancellationToken;
 use crate::config::InstancerConfig;
 use crate::database::Database;
@@ -145,6 +147,7 @@ impl DeploymentWorker {
                 _ = self.shutdown_token.cancelled() => {},
                 req = request_rx.recv() => {
                     if let Some(request) = req {
+                        time::sleep(Duration::from_secs(2)).await;
                         self.handle_request(request).await?;
                     }
                 }

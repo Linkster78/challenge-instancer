@@ -59,7 +59,7 @@ async fn main() -> anyhow::Result<()> {
         .with_http_only(false)
         .with_secure(false);
 
-    let state = Arc::new(InstancerState::new(config, database, deployer, session_store));
+    let state = Arc::new(InstancerState::new(config, database, deployer, session_store, shutdown_token.clone()));
     let state_c = Arc::clone(&state);
 
     let deployer_work_handle = task::spawn(async move { state_c.deployer.do_work().await });

@@ -1,5 +1,6 @@
 use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, RevocationUrl, TokenUrl};
 use oauth2::basic::BasicClient;
+use tokio_util::sync::CancellationToken;
 use tower_sessions_sqlx_store::SqliteStore;
 
 use crate::config::InstancerConfig;
@@ -11,11 +12,12 @@ pub struct InstancerState {
     pub database: Database,
     pub deployer: DeploymentWorker,
     pub session_store: SqliteStore,
-    pub oauth2: BasicClient
+    pub shutdown_token: CancellationToken,
+    pub oauth2: BasicClient,
 }
 
 impl InstancerState {
-    pub fn new(config: InstancerConfig, database: Database, deployer: DeploymentWorker, session_store: SqliteStore) -> InstancerState {
+    pub fn new(config: InstancerConfig, database: Database, deployer: DeploymentWorker, session_store: SqliteStore, shutdown_token: CancellationToken) -> InstancerState {
         let oauth2 = BasicClient::new(
             ClientId::new(config.discord.client_id.clone()),
             Some(ClientSecret::new(config.discord.client_secret.clone())),
@@ -30,7 +32,8 @@ impl InstancerState {
             database,
             deployer,
             session_store,
-            oauth2
+            shutdown_token,
+            oauth2,
         }
     }
 }
