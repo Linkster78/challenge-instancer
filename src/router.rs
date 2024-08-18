@@ -86,7 +86,7 @@ enum ServerBoundMessage {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientBoundMessage {
     ChallengeListing { challenges: HashMap<String, ChallengePlayerState> },
-    ChallengeStateChange { id: String, state: ChallengeInstanceState }
+    ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String> }
 }
 
 impl From<ClientBoundMessage> for Message {
@@ -183,7 +183,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                     };
                                     request_tx.send(request).await?;
 
-                                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart };
+                                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None };
                                     let _ = socket.send(challenge_state_change.into()).await;
                                 },
                                 Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {} /* challenge instance already exists */,
@@ -199,7 +199,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                 };
                                 request_tx.send(request).await?;
 
-                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop };
+                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None };
                                 let _ = socket.send(challenge_state_change.into()).await;
                             }
                         }
@@ -212,7 +212,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                 };
                                 request_tx.send(request).await?;
 
-                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart };
+                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None };
                                 let _ = socket.send(challenge_state_change.into()).await;
                             }
                         }
@@ -225,8 +225,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
             Ok(update) = update_rx.recv() => {
                 if update.user_id != uid { continue; }
                 match update.details {
-                    DeploymentUpdateDetails::StateChange { state } => {
-                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state };
+                    DeploymentUpdateDetails::StateChange { state, details } => {
+                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details };
                         let _ = socket.send(challenge_state_change.into()).await;
                     }
                 }

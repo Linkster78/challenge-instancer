@@ -59,6 +59,10 @@ function loadChallengeDOM(challenge) {
         actionsRunning.classList.add('actions-running');
 
         {
+            const detailsContainer = document.createElement('pre')
+            actionsRunning.appendChild(detailsContainer);
+            detailsContainer.textContent = challenge.details;
+
             const stopButton = document.createElement('button');
             actionsRunning.appendChild(stopButton);
             stopButton.textContent = 'Arrêter';
@@ -126,6 +130,9 @@ ws.onmessage = e => {
             const challenge = challenges[msg.id];
             challenge.state = msg.state;
             challenge.dom.setAttribute('data-state', msg.state);
+            if(msg.details) {
+                challenge.dom.querySelector('pre').textContent = msg.details;
+            }
             break;
     }
 };

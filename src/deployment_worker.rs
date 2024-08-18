@@ -102,7 +102,7 @@ pub struct DeploymentUpdate {
 
 #[derive(Debug, Clone)]
 pub enum DeploymentUpdateDetails {
-    StateChange { state: ChallengeInstanceState }
+    StateChange { state: ChallengeInstanceState, details: Option<String> }
 }
 
 pub struct DeploymentWorker {
@@ -172,20 +172,20 @@ impl DeploymentWorker {
     async fn handle_request(&self, request: DeploymentRequest) -> anyhow::Result<()> {
         let Some(challenge) = self.challenges.get(&request.challenge_id) else { return Ok(()) };
 
-        let new_state = match &request.command {
+        let (new_state, new_details) = match &request.command {
             DeploymentRequestCommand::Start => {
                 match challenge.deploy(&request.user_id, DeploymentRequestCommand::Start).await {
                     Ok(details) => {
                         tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
 
                         self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
-                        ChallengeInstanceState::Running
+                        (ChallengeInstanceState::Running, Some(details))
                     }
                     Err(_) => {
                         tracing::error!("couldn't start challenge {} for user {}", challenge.id, request.user_id);
 
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
-                        ChallengeInstanceState::Stopped
+                        (ChallengeInstanceState::Stopped, None)
                     }
                 }
             }
@@ -195,29 +195,29 @@ impl DeploymentWorker {
                         tracing::info!("stopped challenge {} for user {}", challenge.id, request.user_id);
 
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
-                        ChallengeInstanceState::Stopped
+                        (ChallengeInstanceState::Stopped, None)
                     }
                     Err(_) => {
                         tracing::error!("couldn't stop challenge {} for user {}", challenge.id, request.user_id);
 
                         self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                        ChallengeInstanceState::Running
+                        (ChallengeInstanceState::Running, None)
                     }
                 }
             }
             DeploymentRequestCommand::Restart => {
                 match challenge.deploy(&request.user_id, DeploymentRequestCommand::Restart).await {
-                    Ok(_) => {
+                    Ok(details) => {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                        ChallengeInstanceState::Running
+                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
+                        (ChallengeInstanceState::Running, Some(details))
                     }
                     Err(_) => {
                         tracing::error!("couldn't restart challenge {} for user {}", challenge.id, request.user_id);
 
                         self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
-                        ChallengeInstanceState::Running
+                        (ChallengeInstanceState::Running, None)
                     }
                 }
             }
@@ -226,7 +226,7 @@ impl DeploymentWorker {
         let deployment_state_change = DeploymentUpdate {
             user_id: request.user_id,
             challenge_id: request.challenge_id,
-            details: DeploymentUpdateDetails::StateChange { state: new_state },
+            details: DeploymentUpdateDetails::StateChange { state: new_state, details: new_details },
         };
         let _ = self.update_tx.write().await.send(deployment_state_change);
 

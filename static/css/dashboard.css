@@ -24,3 +24,9 @@ main {
 .challenge-card[data-state="queued_start"] .actions-queued-start { display: inherit; }
 .challenge-card[data-state="queued_stop"] .actions-queued-stop { display: inherit; }
 .challenge-card[data-state="queued_restart"] .actions-queued-restart { display: inherit; }
+
+pre {
+    overflow-x: scroll;
+    padding: .5rem;
+    background-color: #222;
+}

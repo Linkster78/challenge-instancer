@@ -66,5 +66,5 @@ where D: Deserializer<'de>
     };
 
     let value: u32 = s[..s.len() - 1].parse::<u32>().unwrap();
-    return Ok(value * multiplier);
+    Ok(value * multiplier)
 }
