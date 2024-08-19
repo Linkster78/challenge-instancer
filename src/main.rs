@@ -75,6 +75,8 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state)
         .layer(session_layer);
 
+    tracing::info!("started web instancer");
+
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
 

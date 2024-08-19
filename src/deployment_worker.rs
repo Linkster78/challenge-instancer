@@ -281,7 +281,7 @@ impl DeploymentWorker {
                     Ok(_) => {
                         tracing::info!("recovered challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Stopped).await?;
+                        self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
                     }
                     Err(_) => panic!("failed to recover challenge {} for user {}", challenge.id, request.user_id)
                 }
