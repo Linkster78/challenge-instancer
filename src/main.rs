@@ -50,6 +50,8 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_token = CancellationToken::new();
     let deployer = DeploymentWorker::new(&config, database.clone(), shutdown_token.clone());
 
+    deployer.recover().await?;
+
     let session_store = SqliteStore::new(sqlite_pool);
     session_store.migrate().await.expect("failed to migrate session store");
 

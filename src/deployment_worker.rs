@@ -81,7 +81,8 @@ pub struct DeploymentRequest {
 pub enum DeploymentRequestCommand {
     Start,
     Stop,
-    Restart
+    Restart,
+    Recover
 }
 
 impl From<DeploymentRequestCommand> for &str {
@@ -89,7 +90,8 @@ impl From<DeploymentRequestCommand> for &str {
         match value {
             DeploymentRequestCommand::Start => "start",
             DeploymentRequestCommand::Stop => "stop",
-            DeploymentRequestCommand::Restart => "restart"
+            DeploymentRequestCommand::Restart => "restart",
+            DeploymentRequestCommand::Recover => "recover"
         }
     }
 }
@@ -194,7 +196,7 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details) },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" a été démarré!", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> a été démarré!", challenge.name),
                                 severity: MessageSeverity::Success
                             }
                         )
@@ -207,7 +209,7 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" n'a pas pu être démarré.\nContactez un administrateur si l'erreur persiste.", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> n'a pas pu être démarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
                             }
                         )
@@ -224,7 +226,7 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" a été arrêté.", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> a été arrêté.", challenge.name),
                                 severity: MessageSeverity::Success
                             }
                         )
@@ -237,7 +239,7 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" n'a pas pu être arrêté.\nContactez un administrateur si l'erreur persiste.", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> n'a pas pu être arrêté.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
                             }
                         )
@@ -254,7 +256,7 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details) },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" a été redémarré!", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> a été redémarré!", challenge.name),
                                 severity: MessageSeverity::Success
                             }
                         )
@@ -267,21 +269,33 @@ impl DeploymentWorker {
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
                             DeploymentUpdateDetails::Message {
-                                contents: format!("Le défi \"{}\" n'a pas pu être redémarré.\nContactez un administrateur si l'erreur persiste.", challenge.name),
+                                contents: format!("Le défi <strong>{}</strong> n'a pas pu être redémarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
                             }
                         )
                     }
                 }
             }
+            DeploymentRequestCommand::Recover => {
+                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Recover).await {
+                    Ok(_) => {
+                        tracing::info!("recovered challenge {} for user {}", challenge.id, request.user_id);
+
+                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Stopped).await?;
+                    }
+                    Err(_) => panic!("failed to recover challenge {} for user {}", challenge.id, request.user_id)
+                }
+
+                return Ok(());
+            }
         };
 
-        let deployment_state_change = DeploymentUpdate {
+        let state_change = DeploymentUpdate {
             user_id: request.user_id.clone(),
             challenge_id: request.challenge_id.clone(),
             details: state_change,
         };
-        let _ = self.update_tx.write().await.send(deployment_state_change);
+        let _ = self.update_tx.write().await.send(state_change);
 
         let message = DeploymentUpdate {
             user_id: request.user_id,
@@ -289,6 +303,36 @@ impl DeploymentWorker {
             details: message
         };
         let _ = self.update_tx.write().await.send(message);
+
+        Ok(())
+    }
+
+    pub async fn recover(&self) -> anyhow::Result<()> {
+        for instance in self.database.get_queued_challenge_instances().await? {
+            let recover_request = DeploymentRequest {
+                user_id: instance.user_id.clone(),
+                challenge_id: instance.challenge_id.clone(),
+                command: DeploymentRequestCommand::Recover,
+            };
+            self.request_tx.send(recover_request).await?;
+
+            if let ChallengeInstanceState::QueuedStop = instance.state {
+                continue;
+            }
+
+            let consolidate_state = match instance.state {
+                ChallengeInstanceState::QueuedStart => DeploymentRequestCommand::Start,
+                ChallengeInstanceState::QueuedRestart => DeploymentRequestCommand::Restart,
+                _ => panic!("shouldn't happen")
+            };
+
+            let consolidate_request = DeploymentRequest {
+                user_id: instance.user_id,
+                challenge_id: instance.challenge_id,
+                command: consolidate_state,
+            };
+            self.request_tx.send(consolidate_request).await?;
+        }
 
         Ok(())
     }

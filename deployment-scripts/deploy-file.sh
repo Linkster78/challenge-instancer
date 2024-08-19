@@ -10,20 +10,27 @@ set -eu
 # To generate a unique identifier, the md5sum of the user_id should be used
 
 uid_hash=$(echo -n "$3" | md5sum | head -c8)
-filename="$2-$uid_hash"
 
-exit 125
-
-if [[ "$1" == "start" ]]; then
+create_file() {
+  filename="$1-$2"
   echo "creating file $filename"
 	touch "$filename"
 	echo "\$ $(pwd)/$filename"
-elif [[ "$1" == "stop" ]]; then
+}
+
+remove_file() {
+  filename="$1-$2"
   echo "removing file $filename"
 	rm "$filename"
+}
+
+if [[ "$1" == "start" ]]; then
+  create_file "$2" "$uid_hash"
+elif [[ "$1" == "stop" ]]; then
+  remove_file "$2" "$uid_hash"
 elif [[ "$1" == "restart" ]]; then
-  echo "recreating file $filename"
-  rm "$filename"
-  touch "$filename"
-  echo "\$ $(pwd)/$filename"
+  create_file "$2" "$uid_hash"
+  remove_file "$2" "$uid_hash"
+elif [[ "$1" == "recover" ]]; then
+  remove_file "$2" "$uid_hash" || true
 fi

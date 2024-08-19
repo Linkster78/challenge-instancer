@@ -76,10 +76,16 @@ pub struct ChallengePlayerState {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerBoundMessage {
-    ChallengeStart { id: String },
-    ChallengeStop { id: String },
-    ChallengeRestart { id: String },
-    ChallengeExtend { id: String }
+    ChallengeAction { id: String, action: ChallengeActionCommand }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum ChallengeActionCommand {
+    Start,
+    Stop,
+    Restart,
+    Extend
 }
 
 #[derive(Debug, Serialize)]
@@ -166,65 +172,70 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
 
                 match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {
-                        ServerBoundMessage::ChallengeStart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                            let instance = ChallengeInstance {
-                                user_id: uid.clone(),
-                                challenge_id: cid.clone(),
-                                state: ChallengeInstanceState::QueuedStart,
-                                details: None,
-                                start_time: TimeSinceEpoch::now(),
-                            };
-
-                            match state.database.insert_challenge_instance(&instance).await {
-                                Ok(()) => {
-                                    let request = DeploymentRequest {
+                        ServerBoundMessage::ChallengeAction{ id: cid, action } => match state.deployer.challenges.get(&cid) {
+                            Some(_challenge) => match action {
+                                ChallengeActionCommand::Start => {
+                                    let instance = ChallengeInstance {
                                         user_id: uid.clone(),
                                         challenge_id: cid.clone(),
-                                        command: DeploymentRequestCommand::Start
+                                        state: ChallengeInstanceState::QueuedStart,
+                                        details: None,
+                                        start_time: TimeSinceEpoch::now(),
                                     };
-                                    request_tx.send(request).await?;
 
-                                    let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None };
-                                    let _ = socket.send(challenge_state_change.into()).await;
-                                },
-                                Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {} /* challenge instance already exists */,
-                                Err(e) => panic!("{}", e)
-                            }
-                        }
-                        ServerBoundMessage::ChallengeStop { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                            if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
-                                let request = DeploymentRequest {
-                                    user_id: uid.clone(),
-                                    challenge_id: cid.clone(),
-                                    command: DeploymentRequestCommand::Stop
-                                };
-                                request_tx.send(request).await?;
+                                    match state.database.insert_challenge_instance(&instance).await {
+                                        Ok(()) => {
+                                            let request = DeploymentRequest {
+                                                user_id: uid.clone(),
+                                                challenge_id: cid.clone(),
+                                                command: DeploymentRequestCommand::Start
+                                            };
+                                            request_tx.send(request).await?;
 
-                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None };
-                                let _ = socket.send(challenge_state_change.into()).await;
-                            }
-                        }
-                        ServerBoundMessage::ChallengeRestart { id: cid } if state.deployer.challenges.contains_key(&cid) => {
-                            if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
-                                let request = DeploymentRequest {
-                                    user_id: uid.clone(),
-                                    challenge_id: cid.clone(),
-                                    command: DeploymentRequestCommand::Restart
-                                };
-                                request_tx.send(request).await?;
+                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None };
+                                            let _ = socket.send(challenge_state_change.into()).await;
+                                        },
+                                        Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {},
+                                        Err(e) => panic!("{}", e)
+                                    }
+                                }
+                                ChallengeActionCommand::Stop => {
+                                    if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
+                                        let request = DeploymentRequest {
+                                            user_id: uid.clone(),
+                                            challenge_id: cid.clone(),
+                                            command: DeploymentRequestCommand::Stop
+                                        };
+                                        request_tx.send(request).await?;
 
-                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None };
-                                let _ = socket.send(challenge_state_change.into()).await;
+                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None };
+                                        let _ = socket.send(challenge_state_change.into()).await;
+                                    }
+                                }
+                                ChallengeActionCommand::Restart => {
+                                    if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
+                                        let request = DeploymentRequest {
+                                            user_id: uid.clone(),
+                                            challenge_id: cid.clone(),
+                                            command: DeploymentRequestCommand::Restart
+                                        };
+                                        request_tx.send(request).await?;
+
+                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None };
+                                        let _ = socket.send(challenge_state_change.into()).await;
+                                    }
+                                }
+                                ChallengeActionCommand::Extend => {}
                             }
+                            None => return Ok(()) /* received command for unknown challenge from client, close connection */
                         }
-                        ServerBoundMessage::ChallengeExtend { id: cid } if state.deployer.challenges.contains_key(&cid) => {},
-                        _ => return Ok(()) /* received command for unknown challenge from client, close connection */
-                    }
+                    },
                     None => return Ok(()) /* received invalid message, close connection */
                 }
             }
             Ok(update) = update_rx.recv() => {
                 if update.user_id != uid { continue; }
+
                 match update.details {
                     DeploymentUpdateDetails::StateChange { state, details } => {
                         let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details };

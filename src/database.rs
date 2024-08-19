@@ -79,4 +79,9 @@ impl Database {
             .bind(user_id)
             .fetch_all(&self.pool).await
     }
+
+    pub async fn get_queued_challenge_instances(&self) -> Result<Vec<ChallengeInstance>, Error> {
+        sqlx::query_as("SELECT * FROM challenge_instances WHERE state LIKE 'queued_%'")
+            .fetch_all(&self.pool).await
+    }
 }

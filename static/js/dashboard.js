@@ -82,17 +82,17 @@ function loadChallengeDOM(challenge) {
         const actionsQueuedStart = document.createElement('div');
         actions.appendChild(actionsQueuedStart);
         actionsQueuedStart.classList.add('actions-queued-start');
-        actionsQueuedStart.textContent = 'queued start';
+        actionsQueuedStart.textContent = 'En attente du démarrage...';
 
         const actionsQueuedRestart = document.createElement('div');
         actions.appendChild(actionsQueuedRestart);
         actionsQueuedRestart.classList.add('actions-queued-restart');
-        actionsQueuedRestart.textContent = 'queued restart';
+        actionsQueuedRestart.textContent = 'En attente du redémarrage...';
 
         const actionsQueuedStop = document.createElement('div');
         actions.appendChild(actionsQueuedStop);
         actionsQueuedStop.classList.add('actions-queued-stop');
-        actionsQueuedStop.textContent = 'queued stop';
+        actionsQueuedStop.textContent = 'En attente de l\'arrêt...';
     }
 
     card.onclick = e => {
@@ -106,7 +106,7 @@ function loadChallengeDOM(challenge) {
             case 'stop':
             case 'restart':
             case 'extend':
-                ws.send(JSON.stringify({'type': 'challenge_' + action, 'id': challenge.id}))
+                ws.send(JSON.stringify({'type': 'challenge_action', 'id': challenge.id, 'action': action}));
                 break;
             default:
                 return;
@@ -135,8 +135,10 @@ ws.onmessage = e => {
             }
             break;
         case 'message':
+            const text = document.createElement('span');
+            text.innerHTML = msg.contents;
             Toastify({
-                text: msg.contents,
+                node: text,
                 className: msg.severity,
                 close: msg.severity === 'error',
                 duration: msg.severity === 'error' ? -1 : 2500,
