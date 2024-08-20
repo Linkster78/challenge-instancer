@@ -14,7 +14,7 @@ body {
     margin: 1rem;
 }
 
-p, h1, h2, h3 {
+p, h1, h2, h3, pre {
     margin: 0;
 }
 

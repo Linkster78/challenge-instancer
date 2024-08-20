@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::time::Duration;
 use serde::Serialize;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -9,7 +10,7 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use crate::config::InstancerConfig;
 use crate::database::Database;
-use crate::models::ChallengeInstanceState;
+use crate::models::{ChallengeInstanceState, TimeSinceEpoch};
 
 #[derive(Debug)]
 pub struct Challenge {
@@ -105,7 +106,7 @@ pub struct DeploymentUpdate {
 
 #[derive(Debug, Clone)]
 pub enum DeploymentUpdateDetails {
-    StateChange { state: ChallengeInstanceState, details: Option<String> },
+    StateChange { state: ChallengeInstanceState, details: Option<String>, stop_time: Option<TimeSinceEpoch> },
     Message { contents: String, severity: MessageSeverity }
 }
 
@@ -191,10 +192,11 @@ impl DeploymentWorker {
                     Ok(details) => {
                         tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
+                        let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details) },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details), stop_time: Some(stop_time) },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> a été démarré!", challenge.name),
                                 severity: MessageSeverity::Success
@@ -207,7 +209,7 @@ impl DeploymentWorker {
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être démarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
@@ -224,7 +226,7 @@ impl DeploymentWorker {
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> a été arrêté.", challenge.name),
                                 severity: MessageSeverity::Success
@@ -237,7 +239,7 @@ impl DeploymentWorker {
                         self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être arrêté.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
@@ -251,10 +253,11 @@ impl DeploymentWorker {
                     Ok(details) => {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details).await?;
+                        let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details) },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details), stop_time: Some(stop_time) },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> a été redémarré!", challenge.name),
                                 severity: MessageSeverity::Success
@@ -267,7 +270,7 @@ impl DeploymentWorker {
                         self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être redémarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error

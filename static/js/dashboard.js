@@ -6,8 +6,18 @@ function getCookie(name) {
 function formatSeconds(time) {
     const hours = Math.trunc(time / 3600);
     const minutes = Math.trunc(time / 60) % 60;
+    const seconds = time % 60;
 
-    return time >= 3600 ? `${hours}h${minutes.toString().padStart(2, '0')}` : `${minutes}m`;
+    let formatted = '';
+    if(time >= 3600) formatted += `${hours}h `;
+    if(time >= 60) formatted += `${minutes}m `;
+    return formatted + `${seconds}s`;
+}
+
+function formatRemainingTime(stop_time) {
+    if(!stop_time) return '';
+    if(Date.now() > stop_time) return '⏱️ Défi expiré...';
+    return '⏱️ ' + formatSeconds(Math.floor((stop_time - Date.now()) / 1000));
 }
 
 const ws = new WebSocket(`${window.location.origin.replace('http', 'ws')}/ws?sid=${getCookie('id')}`);
@@ -59,9 +69,15 @@ function loadChallengeDOM(challenge) {
         actionsRunning.classList.add('actions-running');
 
         {
-            const detailsContainer = document.createElement('pre')
-            actionsRunning.appendChild(detailsContainer);
-            detailsContainer.textContent = challenge.details;
+            const detailsText = document.createElement('pre')
+            actionsRunning.appendChild(detailsText);
+            detailsText.classList.add('instance-details');
+            detailsText.textContent = challenge.details;
+
+            const ttlText = document.createElement('p');
+            actionsRunning.appendChild(ttlText);
+            ttlText.classList.add('ttl');
+            ttlText.textContent = formatRemainingTime(challenge.stop_time);
 
             const stopButton = document.createElement('button');
             actionsRunning.appendChild(stopButton);
@@ -131,7 +147,12 @@ ws.onmessage = e => {
             challenge.state = msg.state;
             challenge.dom.setAttribute('data-state', msg.state);
             if(msg.details) {
-                challenge.dom.querySelector('pre').textContent = msg.details;
+                challenge.details = msg.details;
+                challenge.dom.querySelector('.instance-details').textContent = msg.details;
+            }
+            if(msg.stop_time) {
+                challenge.stop_time = msg.stop_time;
+                challenge.dom.querySelector('.ttl').textContent = formatRemainingTime(msg.stop_time);
             }
             break;
         case 'message':
@@ -148,3 +169,12 @@ ws.onmessage = e => {
             break;
     }
 };
+
+setInterval(() => {
+    for(let id of Object.keys(challenges)) {
+        const challenge = challenges[id];
+        if(challenge.state === 'running') {
+            challenge.dom.querySelector('.ttl').textContent = formatRemainingTime(challenge.stop_time);
+        }
+    }
+}, 1000);

@@ -1,5 +1,5 @@
 use sqlx::{Error, SqlitePool};
-use crate::models::{ChallengeInstance, ChallengeInstanceState, User};
+use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 
 #[derive(Clone)]
 pub struct Database {
@@ -36,7 +36,7 @@ impl Database {
             .bind(&instance.challenge_id)
             .bind(&instance.state)
             .bind(&instance.details)
-            .bind(&instance.start_time)
+            .bind(&instance.stop_time)
             .execute(&self.pool).await.map(|_| ())
     }
 
@@ -58,10 +58,11 @@ impl Database {
             .execute(&self.pool).await.map(|_| ())
     }
 
-    pub async fn populate_running_challenge_instance(&self, user_id: &str, challenge_id: &str, details: &str) -> Result<(), Error> {
-        sqlx::query("UPDATE challenge_instances SET state = ?, details = ? WHERE user_id = ? AND challenge_id = ?")
+    pub async fn populate_running_challenge_instance(&self, user_id: &str, challenge_id: &str, details: &str, stop_time: TimeSinceEpoch) -> Result<(), Error> {
+        sqlx::query("UPDATE challenge_instances SET state = ?, details = ?, stop_time = ? WHERE user_id = ? AND challenge_id = ?")
             .bind(ChallengeInstanceState::Running)
             .bind(details)
+            .bind(stop_time)
             .bind(user_id)
             .bind(challenge_id)
             .execute(&self.pool).await.map(|_| ())

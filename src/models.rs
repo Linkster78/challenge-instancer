@@ -1,7 +1,7 @@
 use std::ops::Add;
 use std::time::{Duration, SystemTime};
 
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use sqlx::{Decode, Encode, Sqlite};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
@@ -22,7 +22,7 @@ pub struct ChallengeInstance {
     pub challenge_id: String,
     pub state: ChallengeInstanceState,
     pub details: Option<String>,
-    pub start_time: TimeSinceEpoch
+    pub stop_time: Option<TimeSinceEpoch>
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -86,12 +86,15 @@ impl<'q> Encode<'q, Sqlite> for ChallengeInstanceState {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct TimeSinceEpoch(pub SystemTime);
 
 impl TimeSinceEpoch {
     pub fn now() -> Self {
         TimeSinceEpoch(SystemTime::now())
     }
+    pub fn zero() -> Self { TimeSinceEpoch(SystemTime::UNIX_EPOCH) }
+    pub fn from_now(duration: Duration) -> Self { TimeSinceEpoch(SystemTime::now().add(duration)) }
 }
 
 impl From<i64> for TimeSinceEpoch {
@@ -123,5 +126,15 @@ impl<'q> Encode<'q, Sqlite> for TimeSinceEpoch {
     fn encode_by_ref(&self, buf: &mut Vec<SqliteArgumentValue<'q>>) -> Result<IsNull, BoxDynError> {
         let value: i64 = self.into();
         <i64 as Encode<Sqlite>>::encode(value, buf)
+    }
+}
+
+impl Serialize for TimeSinceEpoch {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer
+    {
+        let since_epoch: i64 = self.into();
+        serializer.serialize_i64(since_epoch)
     }
 }

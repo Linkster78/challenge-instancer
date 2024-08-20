@@ -3,6 +3,6 @@ CREATE TABLE IF NOT EXISTS challenge_instances (
     challenge_id  TEXT    NOT NULL,
     state         TEXT    NOT NULL,
     details       TEXT            ,
-    start_time    INTEGER NOT NULL,
+    stop_time     INTEGER         ,
     PRIMARY KEY (user_id, challenge_id)
 );

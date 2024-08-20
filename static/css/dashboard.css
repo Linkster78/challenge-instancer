@@ -12,8 +12,12 @@ main {
     border-radius: .5rem;
 }
 
-.details > * {
+.details > *, .actions > * > *:not(:last-child) {
     margin-bottom: .5rem;
+}
+
+.details {
+    margin-bottom: 1rem;
 }
 
 .actions-stopped, .actions-running, .actions-queued-start, .actions-queued-stop, .actions-queued-restart {

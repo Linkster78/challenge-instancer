@@ -68,8 +68,8 @@ pub struct ChallengePlayerState {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
-    pub ttl: u32,
     pub state: ChallengeInstanceState,
+    pub stop_time: Option<TimeSinceEpoch>,
     pub details: Option<String>
 }
 
@@ -92,7 +92,7 @@ enum ChallengeActionCommand {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ClientBoundMessage {
     ChallengeListing { challenges: HashMap<String, ChallengePlayerState> },
-    ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String> },
+    ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String>, stop_time: Option<TimeSinceEpoch> },
     Message { contents: String, severity: MessageSeverity }
 }
 
@@ -144,16 +144,16 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
     let challenge_instances = state.database.get_user_challenge_instances(&uid).await?;
     let challenges: HashMap<String, ChallengePlayerState> = state.deployer.challenges.iter()
         .map(|(id, challenge)| {
-            let (state, details) = match challenge_instances.iter().filter(|instance| &instance.challenge_id == id).next() {
-                None => (ChallengeInstanceState::Stopped, None),
-                Some(instance) => (instance.state.clone(), instance.details.clone())
+            let (state, stop_time, details) = match challenge_instances.iter().filter(|instance| &instance.challenge_id == id).next() {
+                None => (ChallengeInstanceState::Stopped, None, None),
+                Some(instance) => (instance.state.clone(), instance.stop_time.clone(), instance.details.clone())
             };
 
             let challenge = ChallengePlayerState {
                 id: challenge.id.clone(),
                 name: challenge.name.clone(),
                 description: challenge.description.clone(),
-                ttl: challenge.ttl,
+                stop_time,
                 state,
                 details
             };
@@ -179,8 +179,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                         user_id: uid.clone(),
                                         challenge_id: cid.clone(),
                                         state: ChallengeInstanceState::QueuedStart,
-                                        details: None,
-                                        start_time: TimeSinceEpoch::now(),
+                                        stop_time: None,
+                                        details: None
                                     };
 
                                     match state.database.insert_challenge_instance(&instance).await {
@@ -192,7 +192,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                             };
                                             request_tx.send(request).await?;
 
-                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None };
+                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None, stop_time: None};
                                             let _ = socket.send(challenge_state_change.into()).await;
                                         },
                                         Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {},
@@ -208,7 +208,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                         };
                                         request_tx.send(request).await?;
 
-                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None };
+                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None};
                                         let _ = socket.send(challenge_state_change.into()).await;
                                     }
                                 }
@@ -221,7 +221,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                         };
                                         request_tx.send(request).await?;
 
-                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None };
+                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None, stop_time: None};
                                         let _ = socket.send(challenge_state_change.into()).await;
                                     }
                                 }
@@ -237,8 +237,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                 if update.user_id != uid { continue; }
 
                 match update.details {
-                    DeploymentUpdateDetails::StateChange { state, details } => {
-                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details };
+                    DeploymentUpdateDetails::StateChange { state, details, stop_time } => {
+                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details, stop_time };
                         let _ = socket.send(challenge_state_change.into()).await;
                     }
                     DeploymentUpdateDetails::Message{ contents, severity } => {

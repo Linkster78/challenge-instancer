@@ -29,8 +29,8 @@ if [[ "$1" == "start" ]]; then
 elif [[ "$1" == "stop" ]]; then
   remove_file "$2" "$uid_hash"
 elif [[ "$1" == "restart" ]]; then
-  create_file "$2" "$uid_hash"
   remove_file "$2" "$uid_hash"
+  create_file "$2" "$uid_hash"
 elif [[ "$1" == "recover" ]]; then
   remove_file "$2" "$uid_hash" || true
 fi
