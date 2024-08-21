@@ -3,24 +3,24 @@ extern crate core;
 
 use std::sync::Arc;
 
-use ::config::{Config, File};
-use axum::Router;
-use axum::routing::get;
-use sqlx::ConnectOptions;
-use sqlx::sqlite::SqliteConnectOptions;
-use tokio::net::TcpListener;
-use tokio::{signal, task};
-use tokio_util::sync::CancellationToken;
-use tower_http::services::ServeDir;
-use tower_sessions::{Expiry, SessionManagerLayer};
-use tower_sessions::cookie::SameSite;
-use tower_sessions::cookie::time::Duration;
-use tower_sessions_sqlx_store::{SqliteStore, sqlx::SqlitePool};
-use tracing::log::LevelFilter;
 use crate::config::InstancerConfig;
 use crate::database::Database;
 use crate::deployment_worker::DeploymentWorker;
 use crate::state::InstancerState;
+use axum::routing::get;
+use axum::Router;
+use ::config::{Config, File};
+use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::ConnectOptions;
+use tokio::net::TcpListener;
+use tokio::{signal, task};
+use tokio_util::sync::CancellationToken;
+use tower_http::services::ServeDir;
+use tower_sessions::cookie::time::Duration;
+use tower_sessions::cookie::SameSite;
+use tower_sessions::{Expiry, SessionManagerLayer};
+use tower_sessions_sqlx_store::{sqlx::SqlitePool, SqliteStore};
+use tracing::log::LevelFilter;
 
 mod router;
 mod templating;
@@ -50,7 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let shutdown_token = CancellationToken::new();
     let deployer = DeploymentWorker::new(&config, database.clone(), shutdown_token.clone());
 
-    deployer.recover().await?;
+    deployer.prepare().await?;
 
     let session_store = SqliteStore::new(sqlite_pool);
     session_store.migrate().await.expect("failed to migrate session store");

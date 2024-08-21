@@ -1,5 +1,5 @@
-use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, RevocationUrl, TokenUrl};
 use oauth2::basic::BasicClient;
+use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, RevocationUrl, TokenUrl};
 use tokio_util::sync::CancellationToken;
 use tower_sessions_sqlx_store::SqliteStore;
 

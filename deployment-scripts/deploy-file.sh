@@ -31,6 +31,6 @@ elif [[ "$1" == "stop" ]]; then
 elif [[ "$1" == "restart" ]]; then
   remove_file "$2" "$uid_hash"
   create_file "$2" "$uid_hash"
-elif [[ "$1" == "recover" ]]; then
+elif [[ "$1" == "cleanup" ]]; then
   remove_file "$2" "$uid_hash" || true
 fi

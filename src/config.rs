@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use once_cell::sync::Lazy;
 use regex::Regex;
-use serde::{Deserialize, Deserializer};
 use serde::de::Error;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Deserialize, Debug)]
 pub struct InstancerConfig {

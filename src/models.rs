@@ -1,11 +1,11 @@
-use std::ops::Add;
+use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime};
 
 use serde::{Serialize, Serializer};
-use sqlx::{Decode, Encode, Sqlite};
 use sqlx::encode::IsNull;
 use sqlx::error::BoxDynError;
 use sqlx::sqlite::{SqliteArgumentValue, SqliteTypeInfo, SqliteValueRef};
+use sqlx::{Decode, Encode, Sqlite};
 
 #[derive(sqlx::FromRow)]
 pub struct User {
@@ -25,7 +25,7 @@ pub struct ChallengeInstance {
     pub stop_time: Option<TimeSinceEpoch>
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Ord, PartialOrd, Eq, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ChallengeInstanceState {
     Stopped,
@@ -33,6 +33,15 @@ pub enum ChallengeInstanceState {
     QueuedStart,
     QueuedRestart,
     QueuedStop
+}
+
+impl ChallengeInstanceState {
+    pub fn is_queued(&self) -> bool {
+        match self {
+            ChallengeInstanceState::QueuedStop | ChallengeInstanceState::QueuedStart | ChallengeInstanceState::QueuedRestart => true,
+            _ => false
+        }
+    }
 }
 
 impl From<String> for ChallengeInstanceState {
@@ -86,7 +95,7 @@ impl<'q> Encode<'q, Sqlite> for ChallengeInstanceState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TimeSinceEpoch(pub SystemTime);
 
 impl TimeSinceEpoch {
@@ -95,6 +104,16 @@ impl TimeSinceEpoch {
     }
     pub fn zero() -> Self { TimeSinceEpoch(SystemTime::UNIX_EPOCH) }
     pub fn from_now(duration: Duration) -> Self { TimeSinceEpoch(SystemTime::now().add(duration)) }
+}
+
+impl Sub for &TimeSinceEpoch {
+    type Output = i64;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let self_i64: i64 = self.into();
+        let rhs_i64: i64 = rhs.into();
+        self_i64 - rhs_i64
+    }
 }
 
 impl From<i64> for TimeSinceEpoch {

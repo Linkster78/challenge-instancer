@@ -1,5 +1,5 @@
-use sqlx::{Error, SqlitePool};
 use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
+use sqlx::{Error, SqlitePool};
 
 #[derive(Clone)]
 pub struct Database {
@@ -81,8 +81,8 @@ impl Database {
             .fetch_all(&self.pool).await
     }
 
-    pub async fn get_queued_challenge_instances(&self) -> Result<Vec<ChallengeInstance>, Error> {
-        sqlx::query_as("SELECT * FROM challenge_instances WHERE state LIKE 'queued_%'")
+    pub async fn get_challenge_instances(&self) -> Result<Vec<ChallengeInstance>, Error> {
+        sqlx::query_as("SELECT * FROM challenge_instances")
             .fetch_all(&self.pool).await
     }
 }

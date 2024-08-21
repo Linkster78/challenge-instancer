@@ -4,21 +4,21 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use askama::Template;
-use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::extract::ws::{Message, WebSocket};
+use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use oauth2::reqwest::async_http_client;
+use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use serde::{Deserialize, Serialize};
-use tower_sessions::{Session, SessionStore};
 use tower_sessions::session::Id;
+use tower_sessions::{Session, SessionStore};
 
-use crate::{discord, InstancerState};
 use crate::deployment_worker::{DeploymentRequest, DeploymentRequestCommand, DeploymentUpdateDetails, MessageSeverity};
 use crate::discord::Discord;
 use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
+use crate::{discord, InstancerState};
 
 #[derive(Template)]
 #[template(path = "error.html")]
@@ -172,7 +172,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
 
                 match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {
-                        ServerBoundMessage::ChallengeAction{ id: cid, action } => match state.deployer.challenges.get(&cid) {
+                        ServerBoundMessage::ChallengeAction { id: cid, action } => match state.deployer.challenges.get(&cid) {
                             Some(_challenge) => match action {
                                 ChallengeActionCommand::Start => {
                                     let instance = ChallengeInstance {

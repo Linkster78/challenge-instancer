@@ -1,16 +1,18 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::process::Stdio;
-use std::time::Duration;
-use serde::Serialize;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
-use tokio::sync::{broadcast, Mutex, RwLock};
-use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 use crate::config::InstancerConfig;
 use crate::database::Database;
 use crate::models::{ChallengeInstanceState, TimeSinceEpoch};
+use serde::Serialize;
+use std::cmp::{Ordering, PartialEq, Reverse};
+use std::collections::{BinaryHeap, HashMap};
+use std::path::PathBuf;
+use std::process::Stdio;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::Command;
+use tokio::sync::mpsc;
+use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::time;
+use tokio_util::sync::CancellationToken;
 
 #[derive(Debug)]
 pub struct Challenge {
@@ -83,7 +85,7 @@ pub enum DeploymentRequestCommand {
     Start,
     Stop,
     Restart,
-    Recover
+    Cleanup
 }
 
 impl From<DeploymentRequestCommand> for &str {
@@ -92,7 +94,7 @@ impl From<DeploymentRequestCommand> for &str {
             DeploymentRequestCommand::Start => "start",
             DeploymentRequestCommand::Stop => "stop",
             DeploymentRequestCommand::Restart => "restart",
-            DeploymentRequestCommand::Recover => "recover"
+            DeploymentRequestCommand::Cleanup => "cleanup"
         }
     }
 }
@@ -119,12 +121,38 @@ pub enum MessageSeverity {
     Error
 }
 
+#[derive(Eq)]
+struct ChallengeInstanceOrdered {
+    pub user_id: String,
+    pub challenge_id: String,
+    pub stop_time: TimeSinceEpoch
+}
+
+impl Ord for ChallengeInstanceOrdered {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.stop_time.cmp(&other.stop_time)
+    }
+}
+
+impl PartialOrd for ChallengeInstanceOrdered {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.stop_time.cmp(&other.stop_time))
+    }
+}
+
+impl PartialEq for ChallengeInstanceOrdered {
+    fn eq(&self, other: &Self) -> bool {
+        self.stop_time == other.stop_time
+    }
+}
+
 pub struct DeploymentWorker {
     request_rx: Mutex<mpsc::Receiver<DeploymentRequest>>,
     pub request_tx: mpsc::Sender<DeploymentRequest>,
     pub update_tx: RwLock<broadcast::Sender<DeploymentUpdate>>,
     pub challenges: HashMap<String, Challenge>,
     pub database: Database,
+    ttl_expiries: Mutex<BinaryHeap<Reverse<ChallengeInstanceOrdered>>>,
     shutdown_token: CancellationToken
 }
 
@@ -162,6 +190,7 @@ impl DeploymentWorker {
             update_tx: RwLock::new(update_tx),
             challenges,
             database,
+            ttl_expiries: Mutex::new(BinaryHeap::new()),
             shutdown_token,
         }
     }
@@ -170,8 +199,39 @@ impl DeploymentWorker {
         let mut request_rx = self.request_rx.lock().await;
 
         while !self.shutdown_token.is_cancelled() || request_rx.len() > 0 {
+            let time_until_next_expiry = {
+                let mut ttl_expiries = self.ttl_expiries.lock().await;
+
+                loop {
+                    let Some(next_expired) = ttl_expiries.peek() else { break Duration::from_secs(60); };
+
+                    if next_expired.0.stop_time > TimeSinceEpoch::now() {
+                        break Duration::from_millis((&next_expired.0.stop_time - &TimeSinceEpoch::now()) as u64);
+                    };
+
+                    let next_expired = ttl_expiries.pop().unwrap();
+
+                    if self.database.transition_challenge_instance_state(&next_expired.0.user_id, &next_expired.0.challenge_id, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
+                        let request = DeploymentRequest {
+                            user_id: next_expired.0.user_id.clone(),
+                            challenge_id: next_expired.0.challenge_id.clone(),
+                            command: DeploymentRequestCommand::Stop
+                        };
+                        self.request_tx.send(request).await?;
+
+                        let state_change = DeploymentUpdate {
+                            user_id: next_expired.0.user_id.clone(),
+                            challenge_id: next_expired.0.challenge_id.clone(),
+                            details: DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None }
+                        };
+                        let _ = self.update_tx.write().await.send(state_change);
+                    }
+                }
+            };
+
             tokio::select! {
                 _ = self.shutdown_token.cancelled() => {},
+                _ = time::sleep(time_until_next_expiry) => {},
                 req = request_rx.recv() => {
                     if let Some(request) = req {
                         self.handle_request(request).await?;
@@ -193,6 +253,8 @@ impl DeploymentWorker {
                         tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
 
                         let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+
+                        self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
                         self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
 
                         (
@@ -206,10 +268,15 @@ impl DeploymentWorker {
                     Err(_) => {
                         tracing::error!("couldn't start challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
+                        let cleanup_request = DeploymentRequest {
+                            user_id: request.user_id.clone(),
+                            challenge_id: request.challenge_id.clone(),
+                            command: DeploymentRequestCommand::Cleanup,
+                        };
+                        self.request_tx.send(cleanup_request).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None, stop_time: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::QueuedStart, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être démarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
@@ -223,6 +290,7 @@ impl DeploymentWorker {
                     Ok(_) => {
                         tracing::info!("stopped challenge {} for user {}", challenge.id, request.user_id);
 
+                        self.pop_ttl(&request.user_id, &request.challenge_id).await;
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
 
                         (
@@ -236,10 +304,15 @@ impl DeploymentWorker {
                     Err(_) => {
                         tracing::error!("couldn't stop challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        let cleanup_request = DeploymentRequest {
+                            user_id: request.user_id.clone(),
+                            challenge_id: request.challenge_id.clone(),
+                            command: DeploymentRequestCommand::Cleanup,
+                        };
+                        self.request_tx.send(cleanup_request).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être arrêté.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
@@ -254,6 +327,8 @@ impl DeploymentWorker {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
                         let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+
+                        self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
                         self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
 
                         (
@@ -267,10 +342,15 @@ impl DeploymentWorker {
                     Err(_) => {
                         tracing::error!("couldn't restart challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        let cleanup_request = DeploymentRequest {
+                            user_id: request.user_id.clone(),
+                            challenge_id: request.challenge_id.clone(),
+                            command: DeploymentRequestCommand::Cleanup,
+                        };
+                        self.request_tx.send(cleanup_request).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::QueuedRestart, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> n'a pas pu être redémarré.<br>Contactez un administrateur si l'erreur persiste.", challenge.name),
                                 severity: MessageSeverity::Error
@@ -279,17 +359,24 @@ impl DeploymentWorker {
                     }
                 }
             }
-            DeploymentRequestCommand::Recover => {
-                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Recover).await {
+            DeploymentRequestCommand::Cleanup => {
+                match challenge.deploy(&request.user_id, DeploymentRequestCommand::Cleanup).await {
                     Ok(_) => {
-                        tracing::info!("recovered challenge {} for user {}", challenge.id, request.user_id);
+                        tracing::info!("cleaned up challenge {} for user {}", challenge.id, request.user_id);
 
+                        self.pop_ttl(&request.user_id, &request.challenge_id).await;
                         self.database.delete_challenge_instance(&request.user_id, &request.challenge_id).await?;
-                    }
-                    Err(_) => panic!("failed to recover challenge {} for user {}", challenge.id, request.user_id)
-                }
 
-                return Ok(());
+                        (
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Stopped, details: None, stop_time: None },
+                            DeploymentUpdateDetails::Message {
+                                contents: format!("Le défi <strong>{}</strong> a été réinitialisé.", challenge.name),
+                                severity: MessageSeverity::Info
+                            }
+                        )
+                    }
+                    Err(_) => panic!("failed to clean up challenge {} for user {}", challenge.id, request.user_id)
+                }
             }
         };
 
@@ -310,33 +397,52 @@ impl DeploymentWorker {
         Ok(())
     }
 
-    pub async fn recover(&self) -> anyhow::Result<()> {
-        for instance in self.database.get_queued_challenge_instances().await? {
-            let recover_request = DeploymentRequest {
+    pub async fn prepare(&self) -> anyhow::Result<()> {
+        let challenge_instances = self.database.get_challenge_instances().await?;
+
+        for instance in challenge_instances.iter().filter(|instance| instance.state.is_queued()) {
+            let cleanup_request = DeploymentRequest {
                 user_id: instance.user_id.clone(),
                 challenge_id: instance.challenge_id.clone(),
-                command: DeploymentRequestCommand::Recover,
+                command: DeploymentRequestCommand::Cleanup,
             };
-            self.request_tx.send(recover_request).await?;
+            self.request_tx.send(cleanup_request).await?;
+        }
 
-            if let ChallengeInstanceState::QueuedStop = instance.state {
-                continue;
-            }
-
-            let consolidate_state = match instance.state {
-                ChallengeInstanceState::QueuedStart => DeploymentRequestCommand::Start,
-                ChallengeInstanceState::QueuedRestart => DeploymentRequestCommand::Restart,
-                _ => panic!("shouldn't happen")
-            };
-
-            let consolidate_request = DeploymentRequest {
+        let mut ttl_expiries = self.ttl_expiries.lock().await;
+        for instance in challenge_instances.into_iter().filter(|instance| instance.state == ChallengeInstanceState::Running) {
+            ttl_expiries.push(Reverse(ChallengeInstanceOrdered {
                 user_id: instance.user_id,
                 challenge_id: instance.challenge_id,
-                command: consolidate_state,
-            };
-            self.request_tx.send(consolidate_request).await?;
+                stop_time: instance.stop_time.unwrap()
+            }));
         }
 
         Ok(())
+    }
+
+    async fn push_ttl(&self, user_id: String, challenge_id: String, stop_time: TimeSinceEpoch) {
+        self.pop_ttl(&user_id, &challenge_id).await;
+
+        let mut ttl_expiries = self.ttl_expiries.lock().await;
+        ttl_expiries.push(Reverse(ChallengeInstanceOrdered {
+            user_id,
+            challenge_id,
+            stop_time
+        }));
+    }
+
+    async fn pop_ttl(&self, user_id: &str, challenge_id: &str) {
+        let mut heap = self.ttl_expiries.lock().await;
+        let mut buffer = Vec::with_capacity(heap.len());
+
+        while let Some(val) = heap.pop() {
+            if val.0.user_id == user_id && val.0.challenge_id == challenge_id { continue; }
+            buffer.push(val);
+        }
+
+        for val in buffer.into_iter() {
+            heap.push(val);
+        }
     }
 }

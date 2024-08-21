@@ -17,7 +17,7 @@ function formatSeconds(time) {
 function formatRemainingTime(stop_time) {
     if(!stop_time) return '';
     if(Date.now() > stop_time) return '⏱️ Défi expiré...';
-    return '⏱️ ' + formatSeconds(Math.floor((stop_time - Date.now()) / 1000));
+    return '⏱️ ' + formatSeconds(Math.ceil((stop_time - Date.now()) / 1000));
 }
 
 const ws = new WebSocket(`${window.location.origin.replace('http', 'ws')}/ws?sid=${getCookie('id')}`);
