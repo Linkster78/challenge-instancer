@@ -48,5 +48,5 @@ pre {
 }
 .toastify.success { background: #28a745; }
 .toastify.info { background: #007bff; }
-.toastify.warning { background: #ffc107; }
+.toastify.warning { background: #ffc107; color: black; }
 .toastify.error { background: #dc3545; }

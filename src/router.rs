@@ -225,7 +225,9 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                         let _ = socket.send(challenge_state_change.into()).await;
                                     }
                                 }
-                                ChallengeActionCommand::Extend => {}
+                                ChallengeActionCommand::Extend => {
+                                    // TODO: Extend...
+                                }
                             }
                             None => return Ok(()) /* received command for unknown challenge from client, close connection */
                         }

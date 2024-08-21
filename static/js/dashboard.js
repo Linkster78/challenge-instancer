@@ -20,10 +20,67 @@ function formatRemainingTime(stop_time) {
     return '⏱️ ' + formatSeconds(Math.ceil((stop_time - Date.now()) / 1000));
 }
 
-const ws = new WebSocket(`${window.location.origin.replace('http', 'ws')}/ws?sid=${getCookie('id')}`);
-
 const challengesContainer = document.getElementById('challenges-ctn');
 const challenges = {};
+
+let ws;
+
+function connectWS() {
+    ws = new WebSocket(`${window.location.origin.replace('http', 'ws')}/ws?sid=${getCookie('id')}`);
+
+    ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+
+        switch(msg.type) {
+            case 'challenge_listing':
+                for(let id of Object.keys(msg.challenges).toSorted()) {
+                    challenges[id] = msg.challenges[id];
+                    loadChallengeDOM(challenges[id]);
+                }
+                break;
+            case 'challenge_state_change':
+                const challenge = challenges[msg.id];
+                challenge.state = msg.state;
+                challenge.dom.setAttribute('data-state', msg.state);
+                if(msg.details) {
+                    challenge.details = msg.details;
+                    challenge.dom.querySelector('.instance-details').textContent = msg.details;
+                }
+                if(msg.stop_time) {
+                    challenge.stop_time = msg.stop_time;
+                    challenge.dom.querySelector('.ttl').textContent = formatRemainingTime(msg.stop_time);
+                }
+                break;
+            case 'message':
+                const text = document.createElement('span');
+                text.innerHTML = msg.contents;
+                Toastify({
+                    node: text,
+                    className: msg.severity,
+                    close: msg.severity === 'error',
+                    duration: msg.severity === 'error' ? -1 : 2500,
+                    position: 'right',
+                    gravity: 'bottom'
+                }).showToast();
+                break;
+        }
+    };
+
+    ws.onclose = _ => {
+        for(let key of Object.keys(challenges)) delete challenges[key];
+        challengesContainer.innerHTML = '';
+        Toastify({
+            text: 'La connexion avec le serveur a été perdue.\nReconnexion dans 5 secondes...',
+            className: 'warning',
+            duration: 5000,
+            position: 'right',
+            gravity: 'bottom'
+        }).showToast();
+        setTimeout(connectWS, 5000);
+    }
+}
+
+connectWS();
 
 function loadChallengeDOM(challenge) {
     const card = document.createElement('div');
@@ -131,44 +188,6 @@ function loadChallengeDOM(challenge) {
 
     challenge.dom = card;
 }
-
-ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-
-    switch(msg.type) {
-        case 'challenge_listing':
-            for(let id of Object.keys(msg.challenges).toSorted()) {
-                challenges[id] = msg.challenges[id];
-                loadChallengeDOM(challenges[id]);
-            }
-            break;
-        case 'challenge_state_change':
-            const challenge = challenges[msg.id];
-            challenge.state = msg.state;
-            challenge.dom.setAttribute('data-state', msg.state);
-            if(msg.details) {
-                challenge.details = msg.details;
-                challenge.dom.querySelector('.instance-details').textContent = msg.details;
-            }
-            if(msg.stop_time) {
-                challenge.stop_time = msg.stop_time;
-                challenge.dom.querySelector('.ttl').textContent = formatRemainingTime(msg.stop_time);
-            }
-            break;
-        case 'message':
-            const text = document.createElement('span');
-            text.innerHTML = msg.contents;
-            Toastify({
-                node: text,
-                className: msg.severity,
-                close: msg.severity === 'error',
-                duration: msg.severity === 'error' ? -1 : 2500,
-                position: 'right',
-                gravity: 'bottom'
-            }).showToast();
-            break;
-    }
-};
 
 setInterval(() => {
     for(let id of Object.keys(challenges)) {
