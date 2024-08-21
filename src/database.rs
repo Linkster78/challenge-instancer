@@ -60,6 +60,16 @@ impl Database {
             .execute(&self.pool).await.map(|_| ())
     }
 
+    pub async fn extend_challenge_instance(&self, user_id: &str, challenge_id: &str, stop_time: TimeSinceEpoch) -> Result<bool, Error> {
+        let result = sqlx::query("UPDATE challenge_instances SET stop_time = ? WHERE state = ? AND user_id = ? AND challenge_id = ?")
+            .bind(stop_time)
+            .bind(ChallengeInstanceState::Running)
+            .bind(user_id)
+            .bind(challenge_id)
+            .execute(&self.pool).await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn delete_challenge_instance(&self, user_id: &str, challenge_id: &str) -> Result<(), Error> {
         sqlx::query("DELETE FROM challenge_instances WHERE user_id = ? AND challenge_id = ?")
             .bind(user_id)

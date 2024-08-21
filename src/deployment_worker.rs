@@ -71,6 +71,10 @@ impl Challenge {
             Err(())
         }
     }
+
+    pub fn ttl_duration(&self) -> Duration {
+        Duration::from_secs(self.ttl as u64)
+    }
 }
 
 #[derive(Debug)]
@@ -206,7 +210,7 @@ impl DeploymentWorker {
                     let Some(next_expired) = ttl_expiries.peek() else { break Duration::from_secs(60); };
 
                     if next_expired.0.stop_time > TimeSinceEpoch::now() {
-                        break Duration::from_millis((&next_expired.0.stop_time - &TimeSinceEpoch::now()) as u64);
+                        break &next_expired.0.stop_time - &TimeSinceEpoch::now();
                     };
 
                     let next_expired = ttl_expiries.pop().unwrap();
@@ -252,7 +256,7 @@ impl DeploymentWorker {
                     Ok(details) => {
                         tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
 
-                        let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+                        let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
 
                         self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
                         self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
@@ -326,7 +330,7 @@ impl DeploymentWorker {
                     Ok(details) => {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
-                        let stop_time = TimeSinceEpoch::from_now(Duration::from_secs(challenge.ttl as u64));
+                        let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
 
                         self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
                         self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
@@ -421,7 +425,7 @@ impl DeploymentWorker {
         Ok(())
     }
 
-    async fn push_ttl(&self, user_id: String, challenge_id: String, stop_time: TimeSinceEpoch) {
+    pub async fn push_ttl(&self, user_id: String, challenge_id: String, stop_time: TimeSinceEpoch) {
         self.pop_ttl(&user_id, &challenge_id).await;
 
         let mut ttl_expiries = self.ttl_expiries.lock().await;
@@ -432,7 +436,7 @@ impl DeploymentWorker {
         }));
     }
 
-    async fn pop_ttl(&self, user_id: &str, challenge_id: &str) {
+    pub async fn pop_ttl(&self, user_id: &str, challenge_id: &str) {
         let mut heap = self.ttl_expiries.lock().await;
         let mut buffer = Vec::with_capacity(heap.len());
 

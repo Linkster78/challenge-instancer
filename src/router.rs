@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-
+use std::time::Duration;
 use anyhow::anyhow;
 use askama::Template;
 use axum::extract::ws::{Message, WebSocket};
@@ -173,7 +173,7 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                 match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {
                         ServerBoundMessage::ChallengeAction { id: cid, action } => match state.deployer.challenges.get(&cid) {
-                            Some(_challenge) => match action {
+                            Some(challenge) => match action {
                                 ChallengeActionCommand::Start => {
                                     let instance = ChallengeInstance {
                                         user_id: uid.clone(),
@@ -226,7 +226,20 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                     }
                                 }
                                 ChallengeActionCommand::Extend => {
-                                    // TODO: Extend...
+                                    let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
+
+                                    if state.database.extend_challenge_instance(&uid, &cid, stop_time.clone()).await? {
+                                        state.deployer.push_ttl(uid.clone(), cid.clone(), stop_time.clone()).await;
+
+                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::Running, details: None, stop_time: Some(stop_time) };
+                                        let _ = socket.send(challenge_state_change.into()).await;
+
+                                        let message = ClientBoundMessage::Message {
+                                            severity: MessageSeverity::Success,
+                                            contents: format!("Le défi <strong>{}</strong> a été étendu.", challenge.name),
+                                        };
+                                        let _ = socket.send(message.into()).await;
+                                    }
                                 }
                             }
                             None => return Ok(()) /* received command for unknown challenge from client, close connection */

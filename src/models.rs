@@ -32,7 +32,7 @@ pub enum ChallengeInstanceState {
     Running,
     QueuedStart,
     QueuedRestart,
-    QueuedStop
+    QueuedStop,
 }
 
 impl ChallengeInstanceState {
@@ -107,12 +107,10 @@ impl TimeSinceEpoch {
 }
 
 impl Sub for &TimeSinceEpoch {
-    type Output = i64;
+    type Output = Duration;
 
     fn sub(self, rhs: Self) -> Self::Output {
-        let self_i64: i64 = self.into();
-        let rhs_i64: i64 = rhs.into();
-        self_i64 - rhs_i64
+        self.0.duration_since(rhs.0).unwrap()
     }
 }
 
