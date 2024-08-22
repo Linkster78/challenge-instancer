@@ -175,9 +175,11 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                     let clock = QuantaClock::default();
                     let duration_until = not_until.wait_time_from(clock.now());
 
+                    let seconds_until = duration_until.as_secs_f32().ceil();
+
                     let message = ClientBoundMessage::Message {
                         severity: MessageSeverity::Warning,
-                        contents: format!("Veuillez attendre {} secondes avant votre prochaine action.", duration_until.as_secs_f32().ceil()),
+                        contents: format!("Veuillez attendre {} seconde{} avant votre prochaine action.", seconds_until, if seconds_until == 1.0 { "" } else { "s" }),
                     };
                     let _ = socket.send(message.into()).await;
                     continue;
