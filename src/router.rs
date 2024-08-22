@@ -7,6 +7,7 @@ use axum::extract::ws::{Message, WebSocket};
 use axum::extract::{Query, State, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
+use governor::clock::{Clock, QuantaClock};
 use oauth2::reqwest::async_http_client;
 use oauth2::{AuthorizationCode, CsrfToken, Scope, TokenResponse};
 use serde::{Deserialize, Serialize};
@@ -169,6 +170,18 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
         tokio::select! {
             Some(res) = socket.recv() => {
                 if state.shutdown_token.is_cancelled() { continue; }
+
+                if let Err(not_until) = state.rate_limiter.check_key(&uid) {
+                    let clock = QuantaClock::default();
+                    let duration_until = not_until.wait_time_from(clock.now());
+
+                    let message = ClientBoundMessage::Message {
+                        severity: MessageSeverity::Warning,
+                        contents: format!("Veuillez attendre {} secondes avant votre prochaine action.", duration_until.as_secs_f32().ceil()),
+                    };
+                    let _ = socket.send(message.into()).await;
+                    continue;
+                }
 
                 match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {

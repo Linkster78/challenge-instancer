@@ -1,3 +1,4 @@
+use governor::{DefaultKeyedRateLimiter, Quota, RateLimiter};
 use oauth2::basic::BasicClient;
 use oauth2::{AuthUrl, ClientId, ClientSecret, RedirectUrl, RevocationUrl, TokenUrl};
 use tokio_util::sync::CancellationToken;
@@ -13,6 +14,7 @@ pub struct InstancerState {
     pub deployer: DeploymentWorker,
     pub session_store: SqliteStore,
     pub shutdown_token: CancellationToken,
+    pub rate_limiter: DefaultKeyedRateLimiter<String>,
     pub oauth2: BasicClient,
 }
 
@@ -27,12 +29,15 @@ impl InstancerState {
             .set_revocation_uri(RevocationUrl::new("https://discord.com/api/oauth2/token/revoke".to_string()).unwrap())
             .set_redirect_uri(RedirectUrl::new(config.discord.redirect_url.clone()).unwrap());
 
+        let rate_limiter = RateLimiter::keyed(Quota::per_minute(config.settings.max_actions_per_minute.try_into().unwrap()));
+
         InstancerState {
             config,
             database,
             deployer,
             session_store,
             shutdown_token,
+            rate_limiter,
             oauth2,
         }
     }

@@ -17,7 +17,8 @@ pub struct InstancerConfig {
 
 #[derive(Deserialize, Debug)]
 pub struct SettingsConfig {
-    pub max_concurrent_challenges: u32
+    pub max_concurrent_challenges: u32,
+    pub max_actions_per_minute: u32
 }
 
 #[derive(Deserialize, Debug)]
