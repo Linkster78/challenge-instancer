@@ -22,6 +22,12 @@ description = "Avec des détails de déploiement quelconques..."
 ttl = "1m"
 deployer = "file"
 
+[challenges.my-challenge-2]
+name = "Un certain défi 2"
+description = "Avec des détails de déploiement quelconques..."
+ttl = "1m"
+deployer = "file"
+
 [challenges.web-1]
 name = "Nginx 🎡"
 ttl = "5m"

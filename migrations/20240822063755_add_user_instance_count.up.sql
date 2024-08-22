@@ -1,0 +1,2 @@
+ALTER TABLE users
+ADD instance_count INTEGER NOT NULL DEFAULT 0;

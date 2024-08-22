@@ -6,6 +6,12 @@ pub struct Database {
     pool: SqlitePool
 }
 
+pub enum ChallengeInstanceInsertionResult {
+    Inserted,
+    Exists,
+    LimitReached
+}
+
 impl Database {
     pub async fn new(pool: SqlitePool) -> sqlx::Result<Database> {
         sqlx::migrate!().run(&pool).await?;
@@ -30,14 +36,34 @@ impl Database {
             .execute(&self.pool).await.map(|_| ())
     }
 
-    pub async fn insert_challenge_instance(&self, instance: &ChallengeInstance) -> Result<(), Error> {
-        sqlx::query("INSERT INTO challenge_instances VALUES (?, ?, ?, ?, ?)")
+    pub async fn insert_challenge_instance(&self, instance: &ChallengeInstance, max_instance_count: u32) -> Result<ChallengeInstanceInsertionResult, Error> {
+        let mut tx = self.pool.begin().await?;
+
+        let result = sqlx::query("UPDATE users SET instance_count = instance_count + 1 WHERE id = ? AND instance_count < ?")
+            .bind(&instance.user_id)
+            .bind(max_instance_count)
+            .execute(&mut *tx).await?;
+
+        if result.rows_affected() == 0 {
+            return Ok(ChallengeInstanceInsertionResult::LimitReached);
+        }
+
+        let result = sqlx::query("INSERT INTO challenge_instances VALUES (?, ?, ?, ?, ?)")
             .bind(&instance.user_id)
             .bind(&instance.challenge_id)
             .bind(&instance.state)
             .bind(&instance.details)
             .bind(&instance.stop_time)
-            .execute(&self.pool).await.map(|_| ())
+            .execute(&mut *tx).await;
+
+        match result {
+            Ok(_) => {
+                tx.commit().await?;
+                Ok(ChallengeInstanceInsertionResult::Inserted)
+            }
+            Err(Error::Database(err)) if err.is_unique_violation() => Ok(ChallengeInstanceInsertionResult::Exists),
+            Err(err) => Err(err)
+        }
     }
 
     pub async fn transition_challenge_instance_state(&self, user_id: &str, challenge_id: &str, old_state: ChallengeInstanceState, new_state: ChallengeInstanceState) -> Result<bool, Error> {
@@ -71,10 +97,18 @@ impl Database {
     }
 
     pub async fn delete_challenge_instance(&self, user_id: &str, challenge_id: &str) -> Result<(), Error> {
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query("DELETE FROM challenge_instances WHERE user_id = ? AND challenge_id = ?")
             .bind(user_id)
             .bind(challenge_id)
-            .execute(&self.pool).await.map(|_| ())
+            .execute(&mut *tx).await?;
+
+        sqlx::query("UPDATE users SET instance_count = instance_count - 1 WHERE id = ?")
+            .bind(user_id)
+            .execute(&mut *tx).await?;
+
+        tx.commit().await
     }
 
     pub async fn get_user_challenge_instances(&self, user_id: &str) -> Result<Vec<ChallengeInstance>, Error> {

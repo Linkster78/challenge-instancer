@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 use anyhow::anyhow;
 use askama::Template;
 use axum::extract::ws::{Message, WebSocket};
@@ -19,6 +18,7 @@ use crate::discord::Discord;
 use crate::models::{ChallengeInstance, ChallengeInstanceState, TimeSinceEpoch, User};
 use crate::templating::HtmlTemplate;
 use crate::{discord, InstancerState};
+use crate::database::ChallengeInstanceInsertionResult;
 
 #[derive(Template)]
 #[template(path = "error.html")]
@@ -183,8 +183,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                         details: None
                                     };
 
-                                    match state.database.insert_challenge_instance(&instance).await {
-                                        Ok(()) => {
+                                    match state.database.insert_challenge_instance(&instance, state.config.settings.max_concurrent_challenges).await? {
+                                        ChallengeInstanceInsertionResult::Inserted => {
                                             let request = DeploymentRequest {
                                                 user_id: uid.clone(),
                                                 challenge_id: cid.clone(),
@@ -194,9 +194,15 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
 
                                             let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None, stop_time: None};
                                             let _ = socket.send(challenge_state_change.into()).await;
-                                        },
-                                        Err(sqlx::Error::Database(err)) if err.is_unique_violation() => {},
-                                        Err(e) => panic!("{}", e)
+                                        }
+                                        ChallengeInstanceInsertionResult::LimitReached => {
+                                            let message = ClientBoundMessage::Message {
+                                                severity: MessageSeverity::Warning,
+                                                contents: format!("Vous avez atteint la limite de {} défis concurrents.", state.config.settings.max_concurrent_challenges),
+                                            };
+                                            let _ = socket.send(message.into()).await;
+                                        }
+                                        ChallengeInstanceInsertionResult::Exists => {}
                                     }
                                 }
                                 ChallengeActionCommand::Stop => {
@@ -320,7 +326,8 @@ pub async fn login(
                             username: discord_user.username,
                             display_name: discord_user.global_name,
                             avatar: discord_user.avatar,
-                            creation_time: TimeSinceEpoch::now()
+                            creation_time: TimeSinceEpoch::now(),
+                            instance_count: 0
                         };
 
                         // We can ignore the error here, this could only fail in the case of

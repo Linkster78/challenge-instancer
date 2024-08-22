@@ -13,7 +13,8 @@ pub struct User {
     pub username: String,
     pub display_name: String,
     pub avatar: String,
-    pub creation_time: TimeSinceEpoch
+    pub creation_time: TimeSinceEpoch,
+    pub instance_count: i64
 }
 
 #[derive(sqlx::FromRow)]
