@@ -115,7 +115,8 @@ enum ChallengeActionCommand {
 enum ClientBoundMessage {
     ChallengeListing { challenges: HashMap<String, ChallengePlayerState> },
     ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String>, stop_time: Option<TimeSinceEpoch> },
-    Message { id: String, contents: String, severity: MessageSeverity }
+    Message { id: String, contents: String, severity: MessageSeverity },
+    Heartbeat
 }
 
 impl From<ClientBoundMessage> for Message {
@@ -291,7 +292,9 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                             }
                             None => return Ok(()) /* received command for unknown challenge from client, close connection */
                         },
-                        ServerBoundMessage::Heartbeat => {}
+                        ServerBoundMessage::Heartbeat => {
+                            let _ = socket.send(ClientBoundMessage::Heartbeat.into()).await;
+                        }
                     },
                     None => return Ok(()) /* received invalid message, close connection */
                 }
