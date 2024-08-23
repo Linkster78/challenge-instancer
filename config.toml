@@ -1,6 +1,7 @@
 [settings]
 max_concurrent_challenges = 2
 max_actions_per_minute = 6
+listen_on = "0.0.0.0:3000"
 
 [discord]
 client_id = "1248440441649500243"

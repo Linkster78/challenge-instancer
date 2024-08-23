@@ -73,12 +73,12 @@ async fn main() -> anyhow::Result<()> {
         .route("/logout", get(router::logout))
         .route("/ws", get(router::dashboard_ws_handler))
         .fallback_service(ServeDir::new("static"))
-        .with_state(state)
+        .with_state(Arc::clone(&state))
         .layer(session_layer);
 
-    tracing::info!("started web instancer");
+    tracing::info!("started instancer on {}", state.config.settings.listen_on);
 
-    let listener = TcpListener::bind("0.0.0.0:3000").await?;
+    let listener = TcpListener::bind(&state.config.settings.listen_on).await?;
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
 
     tracing::info!("shutdown requested, draining pending deployment requests...");
