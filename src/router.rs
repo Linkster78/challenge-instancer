@@ -370,9 +370,7 @@ pub async fn login(
                             instance_count: 0
                         };
 
-                        // We can ignore the error here, this could only fail in the case of
-                        // a race condition, which wouldn't influence the rest of the function
-                        let _ = state.database.insert_user(&new_user).await;
+                        state.database.insert_user(&new_user).await?;
 
                         new_user
                     }

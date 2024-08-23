@@ -26,14 +26,21 @@ impl Database {
             .fetch_optional(&self.pool).await
     }
 
-    pub async fn insert_user(&self, user: &User) -> Result<(), Error> {
-        sqlx::query("INSERT INTO users VALUES (?, ?, ?, ?, ?)")
+    pub async fn insert_user(&self, user: &User) -> Result<bool, Error> {
+        let result = sqlx::query("INSERT INTO users VALUES (?, ?, ?, ?, ?, ?)")
             .bind(&user.id)
             .bind(&user.username)
             .bind(&user.display_name)
             .bind(&user.avatar)
             .bind(&user.creation_time)
-            .execute(&self.pool).await.map(|_| ())
+            .bind(&user.instance_count)
+            .execute(&self.pool).await;
+
+        match result {
+            Ok(_) => Ok(true),
+            Err(Error::Database(err)) if err.is_unique_violation() => Ok(false),
+            Err(err) => Err(err)
+        }
     }
 
     pub async fn insert_challenge_instance(&self, instance: &ChallengeInstance, max_instance_count: u32) -> Result<ChallengeInstanceInsertionResult, Error> {
