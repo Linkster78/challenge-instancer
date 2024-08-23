@@ -64,6 +64,26 @@ pub async fn dashboard(
     }
 }
 
+#[derive(Template)]
+#[template(path = "help.html")]
+struct HelpTemplate {
+    avatar_url: String
+}
+
+pub async fn help(
+    session: Session,
+    State(_state): State<Arc<InstancerState>>
+) -> Result<Response, InternalError> {
+    if let Some(uid) = session.get::<String>("uid").await? {
+        let help = HelpTemplate {
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?.unwrap())
+        };
+        Ok(HtmlTemplate(help).into_response())
+    } else {
+        Ok(Redirect::to("/login").into_response())
+    }
+}
+
 #[derive(Serialize, Debug)]
 pub struct ChallengePlayerState {
     pub id: String,
@@ -94,7 +114,7 @@ enum ChallengeActionCommand {
 enum ClientBoundMessage {
     ChallengeListing { challenges: HashMap<String, ChallengePlayerState> },
     ChallengeStateChange { id: String, state: ChallengeInstanceState, details: Option<String>, stop_time: Option<TimeSinceEpoch> },
-    Message { contents: String, severity: MessageSeverity }
+    Message { id: String, contents: String, severity: MessageSeverity }
 }
 
 impl From<ClientBoundMessage> for Message {
@@ -171,95 +191,100 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
             Some(res) = socket.recv() => {
                 if state.shutdown_token.is_cancelled() { continue; }
 
-                if let Err(not_until) = state.rate_limiter.check_key(&uid) {
-                    let clock = QuantaClock::default();
-                    let duration_until = not_until.wait_time_from(clock.now());
-
-                    let seconds_until = duration_until.as_secs_f32().ceil();
-
-                    let message = ClientBoundMessage::Message {
-                        severity: MessageSeverity::Warning,
-                        contents: format!("Veuillez attendre {} seconde{} avant votre prochaine action.", seconds_until, if seconds_until == 1.0 { "" } else { "s" }),
-                    };
-                    let _ = socket.send(message.into()).await;
-                    continue;
-                }
-
                 match res.ok().and_then(|m| ServerBoundMessage::try_from(m).ok()) {
                     Some(msg) => match msg {
                         ServerBoundMessage::ChallengeAction { id: cid, action } => match state.deployer.challenges.get(&cid) {
-                            Some(challenge) => match action {
-                                ChallengeActionCommand::Start => {
-                                    let instance = ChallengeInstance {
-                                        user_id: uid.clone(),
-                                        challenge_id: cid.clone(),
-                                        state: ChallengeInstanceState::QueuedStart,
-                                        stop_time: None,
-                                        details: None
-                                    };
+                            Some(challenge) => {
+                                if let Err(not_until) = state.rate_limiter.check_key(&uid) {
+                                    let clock = QuantaClock::default();
+                                    let duration_until = not_until.wait_time_from(clock.now());
 
-                                    match state.database.insert_challenge_instance(&instance, state.config.settings.max_concurrent_challenges).await? {
-                                        ChallengeInstanceInsertionResult::Inserted => {
+                                    let seconds_until = duration_until.as_secs_f32().ceil();
+
+                                    let message = ClientBoundMessage::Message {
+                                        id: challenge.id.clone(),
+                                        severity: MessageSeverity::Warning,
+                                        contents: format!("Veuillez attendre {} seconde{} avant votre prochaine action.", seconds_until, if seconds_until == 1.0 { "" } else { "s" }),
+                                    };
+                                    let _ = socket.send(message.into()).await;
+                                    continue;
+                                }
+
+                                match action {
+                                    ChallengeActionCommand::Start => {
+                                        let instance = ChallengeInstance {
+                                            user_id: uid.clone(),
+                                            challenge_id: cid.clone(),
+                                            state: ChallengeInstanceState::QueuedStart,
+                                            stop_time: None,
+                                            details: None
+                                        };
+
+                                        match state.database.insert_challenge_instance(&instance, state.config.settings.max_concurrent_challenges).await? {
+                                            ChallengeInstanceInsertionResult::Inserted => {
+                                                let request = DeploymentRequest {
+                                                    user_id: uid.clone(),
+                                                    challenge_id: cid.clone(),
+                                                    command: DeploymentRequestCommand::Start
+                                                };
+                                                request_tx.send(request).await?;
+
+                                                let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None, stop_time: None};
+                                                let _ = socket.send(challenge_state_change.into()).await;
+                                            }
+                                            ChallengeInstanceInsertionResult::LimitReached => {
+                                                let message = ClientBoundMessage::Message {
+                                                    id: cid,
+                                                    severity: MessageSeverity::Warning,
+                                                    contents: format!("Vous avez atteint la limite de {} défis concurrents.", state.config.settings.max_concurrent_challenges),
+                                                };
+                                                let _ = socket.send(message.into()).await;
+                                            }
+                                            ChallengeInstanceInsertionResult::Exists => {}
+                                        }
+                                    }
+                                    ChallengeActionCommand::Stop => {
+                                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
                                             let request = DeploymentRequest {
                                                 user_id: uid.clone(),
                                                 challenge_id: cid.clone(),
-                                                command: DeploymentRequestCommand::Start
+                                                command: DeploymentRequestCommand::Stop
                                             };
                                             request_tx.send(request).await?;
 
-                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStart, details: None, stop_time: None};
+                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None};
                                             let _ = socket.send(challenge_state_change.into()).await;
                                         }
-                                        ChallengeInstanceInsertionResult::LimitReached => {
+                                    }
+                                    ChallengeActionCommand::Restart => {
+                                        if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
+                                            let request = DeploymentRequest {
+                                                user_id: uid.clone(),
+                                                challenge_id: cid.clone(),
+                                                command: DeploymentRequestCommand::Restart
+                                            };
+                                            request_tx.send(request).await?;
+
+                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None, stop_time: None};
+                                            let _ = socket.send(challenge_state_change.into()).await;
+                                        }
+                                    }
+                                    ChallengeActionCommand::Extend => {
+                                        let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
+
+                                        if state.database.extend_challenge_instance(&uid, &cid, stop_time.clone()).await? {
+                                            state.deployer.push_ttl(uid.clone(), cid.clone(), stop_time.clone()).await;
+
+                                            let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid.clone(), state: ChallengeInstanceState::Running, details: None, stop_time: Some(stop_time) };
+                                            let _ = socket.send(challenge_state_change.into()).await;
+
                                             let message = ClientBoundMessage::Message {
-                                                severity: MessageSeverity::Warning,
-                                                contents: format!("Vous avez atteint la limite de {} défis concurrents.", state.config.settings.max_concurrent_challenges),
+                                                id: cid,
+                                                severity: MessageSeverity::Success,
+                                                contents: format!("Le défi <strong>{}</strong> a été étendu.", challenge.name),
                                             };
                                             let _ = socket.send(message.into()).await;
                                         }
-                                        ChallengeInstanceInsertionResult::Exists => {}
-                                    }
-                                }
-                                ChallengeActionCommand::Stop => {
-                                    if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedStop).await? {
-                                        let request = DeploymentRequest {
-                                            user_id: uid.clone(),
-                                            challenge_id: cid.clone(),
-                                            command: DeploymentRequestCommand::Stop
-                                        };
-                                        request_tx.send(request).await?;
-
-                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None};
-                                        let _ = socket.send(challenge_state_change.into()).await;
-                                    }
-                                }
-                                ChallengeActionCommand::Restart => {
-                                    if state.database.transition_challenge_instance_state(&uid, &cid, ChallengeInstanceState::Running, ChallengeInstanceState::QueuedRestart).await? {
-                                        let request = DeploymentRequest {
-                                            user_id: uid.clone(),
-                                            challenge_id: cid.clone(),
-                                            command: DeploymentRequestCommand::Restart
-                                        };
-                                        request_tx.send(request).await?;
-
-                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::QueuedRestart, details: None, stop_time: None};
-                                        let _ = socket.send(challenge_state_change.into()).await;
-                                    }
-                                }
-                                ChallengeActionCommand::Extend => {
-                                    let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
-
-                                    if state.database.extend_challenge_instance(&uid, &cid, stop_time.clone()).await? {
-                                        state.deployer.push_ttl(uid.clone(), cid.clone(), stop_time.clone()).await;
-
-                                        let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: cid, state: ChallengeInstanceState::Running, details: None, stop_time: Some(stop_time) };
-                                        let _ = socket.send(challenge_state_change.into()).await;
-
-                                        let message = ClientBoundMessage::Message {
-                                            severity: MessageSeverity::Success,
-                                            contents: format!("Le défi <strong>{}</strong> a été étendu.", challenge.name),
-                                        };
-                                        let _ = socket.send(message.into()).await;
                                     }
                                 }
                             }
@@ -277,8 +302,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                         let challenge_state_change = ClientBoundMessage::ChallengeStateChange { id: update.challenge_id, state, details, stop_time };
                         let _ = socket.send(challenge_state_change.into()).await;
                     }
-                    DeploymentUpdateDetails::Message{ contents, severity } => {
-                        let message = ClientBoundMessage::Message { contents, severity };
+                    DeploymentUpdateDetails::Message { contents, severity } => {
+                        let message = ClientBoundMessage::Message { id: update.challenge_id, contents, severity };
                         let _ = socket.send(message.into()).await;
                     }
                 }

@@ -68,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
 
     let app = Router::new()
         .route("/", get(router::dashboard))
+        .route("/help", get(router::help))
         .route("/login", get(router::login))
         .route("/logout", get(router::logout))
         .route("/ws", get(router::dashboard_ws_handler))

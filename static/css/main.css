@@ -42,3 +42,12 @@ nav li {
     width: 2.5rem;
     border-radius: 25%;
 }
+
+.coaster-background {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100vw;
+    z-index: -1;
+    filter: opacity(.15);
+}

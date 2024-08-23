@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>UnitedCTF Instancer</title>
+
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/help.css">
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><a href="/">Défis 🚩</a></li>
+                <li><a href="/help" class="nav-selected">Aide 🤔</a></li>
+            </ul>
+        </nav>
+        <div class="logout">
+            <a href="/logout">Déconnexion</a>
+            <img class="avatar" src="{{ avatar_url }}" alt="avatar discord">
+        </div>
+    </header>
+
+    <main>
+        <div class="qa" data-open="false">
+            <h2>À quoi sert ce site?</h2>
+            <p>
+                Certains défis du UnitedCTF peuvent être destructifs (un.e jou.eur.euse pourrait affecter l'expérience d'un.e autre).<br>
+                Ce site permet donc d'obtenir une instance individuelle hébergée de plusieurs défis disponibles.
+            </p>
+        </div>
+
+        <div class="qa" data-open="false">
+            <h2>Comment ça marche?</h2>
+            <p>
+                C'est simple! Allez dans la section "Défis 🚩" et cliquez sur "Démarrer" pour démarrer une instance du défi de votre choix.<br>
+                Une fois démarré, les détails de connexion devraient s'afficher. Vous avez aussi l'option d'arrêter, de redémarrer ou d'étendre la durée de vie de votre instance.
+            </p>
+        </div>
+
+        <div class="qa" data-open="false">
+            <h2>Durée de vie?</h2>
+            <p>
+                Puisque chaque instance individuelle prend une certaine quantité de ressources, chaque défi possède une certaine durée de vie afin d'éviter le gaspillage de ressources.<br>
+                Cela dit, une fonctionnalité d'extension de durée de vie est disponible afin d'obtenir plus de temps sur une instance du défi et pour éviter de perdre son progrès.
+            </p>
+        </div>
+
+        <div class="qa" data-open="false">
+            <h2>J'ai rencontré une erreur, que faire?</h2>
+            <ul>
+                <li>Si l'erreur rencontrée est en lien avec un défi en tant que tel, allez sur Discord et suivez les directives de support.</li>
+                <li>Si l'erreur a été rencontrée lors d'une manipulation sur le site de déploiement, attendez un peu et réessayez votre manipulation.</li>
+                <li>Si l'erreur persiste, contactez @linkster78 sur Discord.</li>
+            </ul>
+        </div>
+
+        <div class="qa" data-open="false">
+            <h2>Autres questions?</h2>
+            <p>
+                Suivez les directives de support telles que décrites sur Discord.
+            </p>
+        </div>
+    </main>
+
+    <img src="/img/coaster_outline.png" class="coaster-background" alt="roller coaster">
+
+    <script src="/js/help.js"></script>
+</body>
+</html>

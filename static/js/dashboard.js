@@ -42,6 +42,7 @@ function connectWS() {
                 const challenge = challenges[msg.id];
                 challenge.state = msg.state;
                 challenge.dom.setAttribute('data-state', msg.state);
+                for(let button of challenge.dom.querySelectorAll('button')) button.removeAttribute('disabled');
                 if(msg.details) {
                     challenge.details = msg.details;
                     challenge.dom.querySelector('.instance-details').textContent = msg.details;
@@ -52,6 +53,7 @@ function connectWS() {
                 }
                 break;
             case 'message':
+                for(let button of challenges[msg.id].dom.querySelectorAll('button')) button.removeAttribute('disabled');
                 const text = document.createElement('span');
                 text.innerHTML = msg.contents;
                 Toastify({
@@ -180,6 +182,7 @@ function loadChallengeDOM(challenge) {
             case 'restart':
             case 'extend':
                 ws.send(JSON.stringify({'type': 'challenge_action', 'id': challenge.id, 'action': action}));
+                for(let button of card.querySelectorAll('button')) button.setAttribute('disabled', 'disabled');
                 break;
             default:
                 return;
