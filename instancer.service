@@ -1,0 +1,13 @@
+[Unit]
+Description=Challenge instancer daemon
+After=network.target
+
+[Service]
+ExecStart=/srv/instancer/instancer
+WorkingDirectory=/srv/instancer
+KillMode=mixed
+TimeoutStopSec=5min
+Type=exec
+
+[Install]
+WantedBy=multi-user.target
