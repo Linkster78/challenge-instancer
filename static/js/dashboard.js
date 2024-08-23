@@ -200,3 +200,9 @@ setInterval(() => {
         }
     }
 }, 1000);
+
+setInterval(() => {
+    if(ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({'type': 'heartbeat'}))
+    }
+}, 30000);

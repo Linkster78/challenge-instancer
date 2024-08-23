@@ -97,7 +97,8 @@ pub struct ChallengePlayerState {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 enum ServerBoundMessage {
-    ChallengeAction { id: String, action: ChallengeActionCommand }
+    ChallengeAction { id: String, action: ChallengeActionCommand },
+    Heartbeat
 }
 
 #[derive(Debug, Deserialize)]
@@ -289,7 +290,8 @@ pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSock
                                 }
                             }
                             None => return Ok(()) /* received command for unknown challenge from client, close connection */
-                        }
+                        },
+                        ServerBoundMessage::Heartbeat => {}
                     },
                     None => return Ok(()) /* received invalid message, close connection */
                 }
