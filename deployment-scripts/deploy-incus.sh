@@ -2,7 +2,7 @@
 set -eu
 
 # The arguments are passed as follows
-#   $1 : command (can be start, stop or restart)
+#   $1 : command (can be start, stop, restart or cleanup)
 #   $2 : challenge_id
 #   $3 : user_id
 

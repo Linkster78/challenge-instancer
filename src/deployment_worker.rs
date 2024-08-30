@@ -30,14 +30,11 @@ impl Challenge {
         tracing::debug!("[{}] calling script: \"{}\"", self.id, self.deployer_path.display());
         tracing::debug!("[{}] args: \"{}\" \"{}\" \"{}\"", self.id, action_str, &self.id, user_id);
 
-        let mut command = Command::new("/bin/bash");
+        let mut command = Command::new(&self.deployer_path);
         command
-            .arg(&self.deployer_path)
             .arg(action_str)
             .arg(&self.id)
             .arg(user_id)
-            .arg("2>&1")
-            .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -49,18 +46,26 @@ impl Challenge {
             }
         };
 
-        let stdout = match &mut child.stdout {
+        let (mut stdout, mut stderr) = match child.stdout.take().zip(child.stderr.take()) {
             None => return Err(()),
-            Some(stdout) => BufReader::new(stdout)
+            Some((stdout, stderr)) => (BufReader::new(stdout).lines(), BufReader::new(stderr).lines())
         };
-        let mut stdout_lines = stdout.lines();
 
         let mut details = String::new();
-        while let Some(line) = stdout_lines.next_line().await.map_err(|_| ())? {
-            tracing::debug!("[{}] {}", self.id, line);
-            if line.starts_with("$") {
-                if details.len() != 0 { details.push('\n'); }
-                details.push_str(&line[2..]);
+
+        loop {
+            tokio::select! {
+                Ok(Some(line)) = stdout.next_line() => {
+                    tracing::debug!("[{}] [O] {}", self.id, line);
+                    if line.starts_with("$") {
+                        if details.len() != 0 { details.push('\n'); }
+                        details.push_str(&line[2..]);
+                    }
+                }
+                Ok(Some(line)) = stderr.next_line() => {
+                    tracing::warn!("[{}] [E] {}", self.id, line);
+                }
+                else => break
             }
         }
 
