@@ -103,7 +103,7 @@ function loadChallengeDOM(challenge) {
         if (challenge.description) {
             const description = document.createElement('p');
             details.appendChild(description);
-            description.textContent = challenge.description;
+            description.innerHTML = challenge.description;
         }
     }
 
