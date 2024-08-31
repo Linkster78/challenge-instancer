@@ -13,7 +13,8 @@ use ::config::{Config, File};
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::ConnectOptions;
 use tokio::net::TcpListener;
-use tokio::{signal, task};
+use tokio::{signal};
+use tokio::task::JoinSet;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 use tower_sessions::cookie::time::Duration;
@@ -62,9 +63,12 @@ async fn main() -> anyhow::Result<()> {
         .with_secure(false);
 
     let state = Arc::new(InstancerState::new(config, database, deployer, session_store, shutdown_token.clone()));
-    let state_c = Arc::clone(&state);
 
-    let deployer_work_handle = task::spawn(async move { state_c.deployer.do_work().await });
+    let mut workers = JoinSet::new();
+    for _ in 1..=state.config.settings.worker_count {
+        let state = Arc::clone(&state);
+        workers.spawn(async move { state.deployer.do_work().await });
+    }
 
     let app = Router::new()
         .route("/", get(router::dashboard))
@@ -84,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("shutdown requested, draining pending deployment requests...");
 
     shutdown_token.cancel();
-    deployer_work_handle.await??;
+    workers.join_all().await;
 
     Ok(())
 }

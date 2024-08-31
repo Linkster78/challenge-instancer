@@ -162,7 +162,7 @@ pub async fn dashboard_handle_ws_unwrap(state: Arc<InstancerState>, socket: WebS
 
 pub async fn dashboard_handle_ws(state: Arc<InstancerState>, mut socket: WebSocket, uid: String) -> anyhow::Result<()> {
     let request_tx = state.deployer.request_tx.clone();
-    let mut update_rx = state.deployer.update_tx.read().await.subscribe();
+    let mut update_rx = state.deployer.update_tx.subscribe();
 
     let challenge_instances = state.database.get_user_challenge_instances(&uid).await?;
     let challenges: HashMap<String, ChallengePlayerState> = state.deployer.challenges.iter()

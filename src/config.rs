@@ -19,6 +19,7 @@ pub struct InstancerConfig {
 pub struct SettingsConfig {
     pub max_concurrent_challenges: u32,
     pub max_actions_per_minute: u32,
+    pub worker_count: u32,
     pub listen_on: String
 }
 

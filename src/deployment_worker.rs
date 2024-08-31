@@ -9,8 +9,7 @@ use std::process::{Stdio};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::sync::mpsc;
-use tokio::sync::{broadcast, Mutex, RwLock};
+use tokio::sync::{broadcast, Mutex};
 use tokio::time;
 use tokio_util::sync::CancellationToken;
 
@@ -163,9 +162,9 @@ impl PartialEq for ChallengeInstanceOrdered {
 }
 
 pub struct DeploymentWorker {
-    request_rx: Mutex<mpsc::Receiver<DeploymentRequest>>,
-    pub request_tx: mpsc::Sender<DeploymentRequest>,
-    pub update_tx: RwLock<broadcast::Sender<DeploymentUpdate>>,
+    request_rx: async_channel::Receiver<DeploymentRequest>,
+    pub request_tx: async_channel::Sender<DeploymentRequest>,
+    pub update_tx: broadcast::Sender<DeploymentUpdate>,
     pub challenges: HashMap<String, Challenge>,
     pub database: Database,
     ttl_expiries: Mutex<BinaryHeap<Reverse<ChallengeInstanceOrdered>>>,
@@ -174,7 +173,7 @@ pub struct DeploymentWorker {
 
 impl DeploymentWorker {
     pub fn new(config: &InstancerConfig, database: Database, shutdown_token: CancellationToken) -> Self {
-        let (request_tx, request_rx) = mpsc::channel(128);
+        let (request_tx, request_rx) = async_channel::unbounded();
         let (update_tx, _) = broadcast::channel(16);
 
         let challenges = config.challenges.iter()
@@ -201,9 +200,9 @@ impl DeploymentWorker {
             .collect();
 
         DeploymentWorker {
-            request_rx: Mutex::new(request_rx),
+            request_rx,
             request_tx,
-            update_tx: RwLock::new(update_tx),
+            update_tx,
             challenges,
             database,
             ttl_expiries: Mutex::new(BinaryHeap::new()),
@@ -212,7 +211,7 @@ impl DeploymentWorker {
     }
 
     pub async fn do_work(&self) -> anyhow::Result<()> {
-        let mut request_rx = self.request_rx.lock().await;
+        let request_rx = self.request_rx.clone();
 
         while !self.shutdown_token.is_cancelled() || request_rx.len() > 0 {
             let time_until_next_expiry = {
@@ -240,7 +239,7 @@ impl DeploymentWorker {
                             challenge_id: next_expired.0.challenge_id.clone(),
                             details: DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::QueuedStop, details: None, stop_time: None }
                         };
-                        let _ = self.update_tx.write().await.send(state_change);
+                        let _ = self.update_tx.send(state_change);
                     }
                 }
             };
@@ -249,7 +248,7 @@ impl DeploymentWorker {
                 _ = self.shutdown_token.cancelled() => {},
                 _ = time::sleep(time_until_next_expiry) => {},
                 req = request_rx.recv() => {
-                    if let Some(request) = req {
+                    if let Ok(request) = req {
                         self.handle_request(request).await?;
                     }
                 }
@@ -401,14 +400,14 @@ impl DeploymentWorker {
             challenge_id: request.challenge_id.clone(),
             details: state_change,
         };
-        let _ = self.update_tx.write().await.send(state_change);
+        let _ = self.update_tx.send(state_change);
 
         let message = DeploymentUpdate {
             user_id: request.user_id,
             challenge_id: request.challenge_id,
             details: message
         };
-        let _ = self.update_tx.write().await.send(message);
+        let _ = self.update_tx.send(message);
 
         Ok(())
     }
