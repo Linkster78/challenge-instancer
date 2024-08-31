@@ -5,7 +5,7 @@ use serde::Serialize;
 use std::cmp::{Ordering, PartialEq, Reverse};
 use std::collections::{BinaryHeap, HashMap};
 use std::path::PathBuf;
-use std::process::Stdio;
+use std::process::{Stdio};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -47,7 +47,10 @@ impl Challenge {
         };
 
         let (mut stdout, mut stderr) = match child.stdout.take().zip(child.stderr.take()) {
-            None => return Err(()),
+            None => {
+                tracing::error!("[{}] couldn't take stdout & stderr", self.id);
+                return Err(());
+            },
             Some((stdout, stderr)) => (BufReader::new(stdout).lines(), BufReader::new(stderr).lines())
         };
 
@@ -73,6 +76,10 @@ impl Challenge {
         if output.status.success() {
             Ok(details)
         } else {
+            match output.status.code() {
+                None => tracing::error!("[{}] child process exited with signal", self.id),
+                Some(code) => tracing::error!("[{}] child process exited with status {}", self.id, code)
+            }
             Err(())
         }
     }
