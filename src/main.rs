@@ -10,6 +10,7 @@ use crate::state::InstancerState;
 use axum::routing::get;
 use axum::Router;
 use ::config::{Config, File};
+use sd_notify::NotifyState;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::ConnectOptions;
 use tokio::net::TcpListener;
@@ -83,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("started instancer on {}", state.config.settings.listen_on);
 
     let listener = TcpListener::bind(&state.config.settings.listen_on).await?;
+    let _ = sd_notify::notify(true, &[NotifyState::Ready]);
     axum::serve(listener, app).with_graceful_shutdown(shutdown_signal()).await?;
 
     tracing::info!("shutdown requested, draining pending deployment requests...");

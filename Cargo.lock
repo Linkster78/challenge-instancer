@@ -344,6 +344,7 @@ dependencies = [
  "once_cell",
  "regex",
  "reqwest 0.12.7",
+ "sd-notify",
  "serde",
  "serde_json",
  "sqlx",
@@ -2168,6 +2169,12 @@ dependencies = [
  "ring",
  "untrusted",
 ]
+
+[[package]]
+name = "sd-notify"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4646d6f919800cd25c50edb49438a1381e2cd4833c027e75e8897981c50b8b5e"
 
 [[package]]
 name = "security-framework"

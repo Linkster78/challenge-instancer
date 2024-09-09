@@ -7,7 +7,7 @@ ExecStart=/srv/instancer/instancer
 WorkingDirectory=/srv/instancer
 KillMode=mixed
 TimeoutStopSec=5min
-Type=exec
+Type=notify
 
 [Install]
 WantedBy=multi-user.target
