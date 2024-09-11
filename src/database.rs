@@ -73,6 +73,14 @@ impl Database {
         }
     }
 
+    pub async fn update_challenge_instance_state(&self, user_id: &str, challenge_id: &str, state: ChallengeInstanceState) -> Result<(), Error> {
+        sqlx::query("UPDATE challenge_instances SET state = ? WHERE user_id = ? AND challenge_id = ?")
+            .bind(state)
+            .bind(user_id)
+            .bind(challenge_id)
+            .execute(&self.pool).await.map(|_| ())
+    }
+
     pub async fn transition_challenge_instance_state(&self, user_id: &str, challenge_id: &str, old_state: ChallengeInstanceState, new_state: ChallengeInstanceState) -> Result<bool, Error> {
         let result = sqlx::query("UPDATE challenge_instances SET state = ? WHERE user_id = ? AND challenge_id = ? AND state = ?")
             .bind(new_state)

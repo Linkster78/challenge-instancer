@@ -338,16 +338,13 @@ impl DeploymentWorker {
             }
             DeploymentRequestCommand::Restart => {
                 match challenge.deploy(&request.user_id, DeploymentRequestCommand::Restart).await {
-                    Ok(details) => {
+                    Ok(_) => {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
-                        let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
-
-                        self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
-                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
+                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details), stop_time: Some(stop_time) },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> a été redémarré!", challenge.name),
                                 severity: MessageSeverity::Success
