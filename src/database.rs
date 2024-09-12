@@ -73,14 +73,6 @@ impl Database {
         }
     }
 
-    pub async fn update_challenge_instance_state(&self, user_id: &str, challenge_id: &str, state: ChallengeInstanceState) -> Result<(), Error> {
-        sqlx::query("UPDATE challenge_instances SET state = ? WHERE user_id = ? AND challenge_id = ?")
-            .bind(state)
-            .bind(user_id)
-            .bind(challenge_id)
-            .execute(&self.pool).await.map(|_| ())
-    }
-
     pub async fn transition_challenge_instance_state(&self, user_id: &str, challenge_id: &str, old_state: ChallengeInstanceState, new_state: ChallengeInstanceState) -> Result<bool, Error> {
         let result = sqlx::query("UPDATE challenge_instances SET state = ? WHERE user_id = ? AND challenge_id = ? AND state = ?")
             .bind(new_state)
@@ -91,14 +83,26 @@ impl Database {
         Ok(result.rows_affected() == 1)
     }
 
-    pub async fn populate_running_challenge_instance(&self, user_id: &str, challenge_id: &str, details: &str, stop_time: TimeSinceEpoch) -> Result<(), Error> {
-        sqlx::query("UPDATE challenge_instances SET state = ?, details = ?, stop_time = ? WHERE user_id = ? AND challenge_id = ?")
-            .bind(ChallengeInstanceState::Running)
-            .bind(details)
-            .bind(stop_time)
-            .bind(user_id)
-            .bind(challenge_id)
-            .execute(&self.pool).await.map(|_| ())
+    pub async fn populate_running_challenge_instance(&self, user_id: &str, challenge_id: &str, details: &str, stop_time: Option<TimeSinceEpoch>) -> Result<(), Error> {
+        match stop_time {
+            None => {
+                sqlx::query("UPDATE challenge_instances SET state = ?, details = ? WHERE user_id = ? AND challenge_id = ?")
+                    .bind(ChallengeInstanceState::Running)
+                    .bind(details)
+                    .bind(user_id)
+                    .bind(challenge_id)
+                    .execute(&self.pool).await.map(|_| ())
+            }
+            Some(stop_time) => {
+                sqlx::query("UPDATE challenge_instances SET state = ?, details = ?, stop_time = ? WHERE user_id = ? AND challenge_id = ?")
+                    .bind(ChallengeInstanceState::Running)
+                    .bind(details)
+                    .bind(stop_time)
+                    .bind(user_id)
+                    .bind(challenge_id)
+                    .execute(&self.pool).await.map(|_| ())
+            }
+        }
     }
 
     pub async fn extend_challenge_instance(&self, user_id: &str, challenge_id: &str, stop_time: TimeSinceEpoch) -> Result<bool, Error> {

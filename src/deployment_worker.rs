@@ -4,6 +4,7 @@ use crate::models::{ChallengeInstanceState, TimeSinceEpoch};
 use serde::Serialize;
 use std::cmp::{Ordering, PartialEq, Reverse};
 use std::collections::{BinaryHeap, HashMap};
+use std::ops::Not;
 use std::path::PathBuf;
 use std::process::{Stdio};
 use std::time::Duration;
@@ -23,7 +24,7 @@ pub struct Challenge {
 }
 
 impl Challenge {
-    pub async fn deploy(&self, user_id: &str, action: DeploymentRequestCommand) -> Result<String, ()> {
+    pub async fn deploy(&self, user_id: &str, action: DeploymentRequestCommand) -> Result<Option<String>, ()> {
         let action_str = <DeploymentRequestCommand as Into<&str>>::into(action);
 
         tracing::debug!("[{}] calling script: \"{}\"", self.id, self.deployer_path.display());
@@ -73,7 +74,7 @@ impl Challenge {
 
         let output = child.wait_with_output().await.map_err(|_| ())?;
         if output.status.success() {
-            Ok(details)
+            Ok(details.is_empty().not().then_some(details))
         } else {
             match output.status.code() {
                 None => tracing::error!("[{}] child process exited with signal", self.id),
@@ -264,13 +265,13 @@ impl DeploymentWorker {
         let (state_change, message) = match &request.command {
             DeploymentRequestCommand::Start => {
                 match challenge.deploy(&request.user_id, DeploymentRequestCommand::Start).await {
-                    Ok(details) => {
+                    Ok(Some(details)) => {
                         tracing::info!("started challenge {} for user {}", challenge.id, request.user_id);
 
                         let stop_time = TimeSinceEpoch::from_now(challenge.ttl_duration());
 
                         self.push_ttl(request.user_id.clone(), request.challenge_id.clone(), stop_time.clone()).await;
-                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, stop_time.clone()).await?;
+                        self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, Some(stop_time.clone())).await?;
 
                         (
                             DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: Some(details), stop_time: Some(stop_time) },
@@ -280,7 +281,7 @@ impl DeploymentWorker {
                             }
                         )
                     }
-                    Err(_) => {
+                    Err(_) | Ok(None) => {
                         tracing::error!("couldn't start challenge {} for user {}", challenge.id, request.user_id);
 
                         let cleanup_request = DeploymentRequest {
@@ -338,13 +339,16 @@ impl DeploymentWorker {
             }
             DeploymentRequestCommand::Restart => {
                 match challenge.deploy(&request.user_id, DeploymentRequestCommand::Restart).await {
-                    Ok(_) => {
+                    Ok(details) => {
                         tracing::info!("restarted challenge {} for user {}", challenge.id, request.user_id);
 
-                        self.database.update_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::Running).await?;
+                        match &details {
+                            None => { self.database.transition_challenge_instance_state(&request.user_id, &request.challenge_id, ChallengeInstanceState::QueuedRestart, ChallengeInstanceState::Running).await?; },
+                            Some(details) => { self.database.populate_running_challenge_instance(&request.user_id, &request.challenge_id, &details, None).await?; }
+                        }
 
                         (
-                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details: None, stop_time: None },
+                            DeploymentUpdateDetails::StateChange { state: ChallengeInstanceState::Running, details, stop_time: None },
                             DeploymentUpdateDetails::Message {
                                 contents: format!("Le défi <strong>{}</strong> a été redémarré!", challenge.name),
                                 severity: MessageSeverity::Success
