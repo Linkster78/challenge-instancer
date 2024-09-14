@@ -14,8 +14,8 @@ pub struct Discord {
 pub struct User {
     pub id: String,
     pub username: String,
-    pub global_name: String,
-    pub avatar: String
+    pub global_name: Option<String>,
+    pub avatar: Option<String>
 }
 
 #[derive(Deserialize, Debug)]
@@ -45,7 +45,10 @@ impl Discord {
             .json().await?)
     }
 
-    pub fn avatar_url(id: &str, avatar: &str) -> String {
-        format!("https://cdn.discordapp.com/avatars/{}/{}.png", id, avatar)
+    pub fn avatar_url(id: &str, avatar: &Option<String>) -> String {
+        match avatar {
+            None => String::from("https://discordapp.com/assets/a0180771ce23344c2a95.png"),
+            Some(avatar_hash) => format!("https://cdn.discordapp.com/avatars/{}/{}.png", id, avatar_hash)
+        }
     }
 }

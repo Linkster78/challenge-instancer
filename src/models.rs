@@ -12,7 +12,7 @@ pub struct User {
     pub id: String,
     pub username: String,
     pub display_name: String,
-    pub avatar: String,
+    pub avatar: Option<String>,
     pub creation_time: TimeSinceEpoch,
     pub instance_count: i64
 }

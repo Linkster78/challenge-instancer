@@ -56,7 +56,7 @@ pub async fn dashboard(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let dashboard = DashboardTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?.unwrap())
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?)
         };
         Ok(HtmlTemplate(dashboard).into_response())
     } else {
@@ -76,7 +76,7 @@ pub async fn help(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let help = HelpTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?.unwrap())
+            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?)
         };
         Ok(HtmlTemplate(help).into_response())
     } else {
@@ -368,8 +368,8 @@ pub async fn login(
 
                         let new_user = User {
                             id: discord_user.id,
-                            username: discord_user.username,
-                            display_name: discord_user.global_name,
+                            username: discord_user.username.clone(),
+                            display_name: discord_user.global_name.unwrap_or(discord_user.username),
                             avatar: discord_user.avatar,
                             creation_time: TimeSinceEpoch::now(),
                             instance_count: 0
