@@ -35,7 +35,13 @@ mod deployment_worker;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .event_format(
+            tracing_subscriber::fmt::format()
+                .with_file(true)
+                .with_line_number(true)
+        )
+        .init();
 
     let config: InstancerConfig = Config::builder()
         .add_source(File::with_name("config.toml"))

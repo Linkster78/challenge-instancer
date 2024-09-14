@@ -56,7 +56,7 @@ pub async fn dashboard(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let dashboard = DashboardTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?)
+            avatar_url: Discord::avatar_url(&uid, &session.get::<Option<String>>("avatar").await?.unwrap())
         };
         Ok(HtmlTemplate(dashboard).into_response())
     } else {
@@ -76,7 +76,7 @@ pub async fn help(
 ) -> Result<Response, InternalError> {
     if let Some(uid) = session.get::<String>("uid").await? {
         let help = HelpTemplate {
-            avatar_url: Discord::avatar_url(&uid, &session.get::<String>("avatar").await?)
+            avatar_url: Discord::avatar_url(&uid, &session.get::<Option<String>>("avatar").await?.unwrap())
         };
         Ok(HtmlTemplate(help).into_response())
     } else {
